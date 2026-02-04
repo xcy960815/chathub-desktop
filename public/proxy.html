@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>代理设置</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: #1a1a1a;
+        --input-bg: #f2f2f7;
+        --btn-ok: #007aff;
+        --btn-cancel: #f2f2f7;
+        --hint: #8e8e93;
+        --border: rgba(0, 0, 0, 0.05);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1c1e;
+          --text: #ffffff;
+          --input-bg: #2c2c2e;
+          --btn-ok: #0a84ff;
+          --btn-cancel: #2c2c2e;
+          --hint: #8e8e93;
+          --border: rgba(255, 255, 255, 0.1);
+        }
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        margin: 0;
+        padding: 20px;
+        overflow: hidden;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .hint {
+        font-size: 13px;
+        color: var(--hint);
+        line-height: 1.4;
+      }
+      .input-group {
+        position: relative;
+      }
+      input {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--input-bg);
+        color: var(--text);
+        font-size: 14px;
+        box-sizing: border-box;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      input:focus {
+        outline: none;
+        background: var(--bg);
+        border-color: var(--btn-ok);
+        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
+      }
+      .buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 4px;
+      }
+      button {
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+      }
+      .btn-cancel {
+        background: var(--btn-cancel);
+        color: var(--text);
+      }
+      .btn-cancel:hover {
+        filter: brightness(0.95);
+      }
+      .btn-ok {
+        background: var(--btn-ok);
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
+      }
+      .btn-ok:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+      }
+      .btn-ok:active {
+        transform: translateY(0);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div id="hint-text" class="hint"></div>
+      </div>
+      <div class="input-group">
+        <input
+          type="text"
+          id="proxy-input"
+          value=""
+          placeholder=""
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </div>
+      <div class="buttons">
+        <button class="btn-cancel" id="cancel-btn">取消</button>
+        <button class="btn-ok" id="save-btn">保存</button>
+      </div>
+    </div>
+    <script>
+      // Hybrid version to support various v2 injection methods
+      async function getInvoke() {
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          return window.__TAURI__.core.invoke
+        }
+        // Wait a bit and try again
+        return new Promise((resolve) => {
+          let attempts = 0
+          const interval = setInterval(() => {
+            attempts++
+            if (window.__TAURI__ && window.__TAURI__.core) {
+              clearInterval(interval)
+              resolve(window.__TAURI__.core.invoke)
+            } else if (attempts > 50) {
+              // 5 seconds
+              clearInterval(interval)
+              console.error('Tauri API not found after 5 seconds')
+              alert('无法连接到程序核心服务，请检查权限设置')
+              resolve(null)
+            }
+          }, 100)
+        })
+      }
+
+      async function init() {
+        const invoke = await getInvoke()
+        if (!invoke) return
+
+        const input = document.getElementById('proxy-input')
+        const hintEl = document.getElementById('hint-text')
+        const cancelBtn = document.getElementById('cancel-btn')
+        const saveBtn = document.getElementById('save-btn')
+
+        const params = new URLSearchParams(window.location.search)
+        hintEl.textContent = params.get('hint') || '输入代理地址'
+        input.value = params.get('current') || ''
+        input.placeholder = params.get('placeholder') || '留空则禁用代理'
+        cancelBtn.textContent = params.get('cancelText') || '取消'
+        saveBtn.textContent = params.get('okText') || '保存'
+
+        input.focus()
+        input.select()
+
+        cancelBtn.onclick = () => invoke('close_proxy_window').catch((e) => console.error(e))
+        saveBtn.onclick = async () => {
+          const val = input.value.trim()
+          try {
+            await invoke('save_proxy', { proxy: val })
+            await invoke('close_proxy_window')
+          } catch (e) {
+            console.error('Invoke failed:', e)
+            alert('保存失败: ' + e)
+          }
+        }
+
+        input.onkeydown = (e) => {
+          if (e.key === 'Enter') saveBtn.click()
+          if (e.key === 'Escape') cancelBtn.click()
+        }
+      }
+
+      init()
+    </script>
+  </body>
+</html>
