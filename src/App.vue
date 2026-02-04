@@ -82,33 +82,33 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  height: 50px;
+  height: 30px;
 }
 
 .dot {
   border-radius: 50%;
-  animation: bounce 0.6s ease-in-out infinite;
+  animation: bounce 1.5s ease-in-out infinite;
 }
 
 .dot-1 {
-  width: 24px;
-  height: 24px;
+  width: 14px;
+  height: 14px;
   background-color: #f87171;
   animation-delay: 0s;
 }
 
 .dot-2 {
-  width: 22px;
-  height: 22px;
+  width: 12px;
+  height: 12px;
   background-color: #2dd4bf;
-  animation-delay: 0.1s;
+  animation-delay: 0.2s;
 }
 
 .dot-3 {
-  width: 18px;
-  height: 18px;
+  width: 10px;
+  height: 10px;
   background-color: #7dd3fc;
-  animation-delay: 0.2s;
+  animation-delay: 0.4s;
 }
 
 @keyframes bounce {
@@ -122,7 +122,7 @@ body {
 }
 
 .loading-text {
-  font-size: 1.5rem;
+  font-size: 1rem;
   font-weight: 500;
   color: #374151;
 }

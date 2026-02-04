@@ -3,7 +3,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager,
 };
-use tauri_plugin_positioner::{Position, WindowExt};
+
 use tauri_plugin_store::StoreExt;
 use tauri_plugin_autostart::MacosLauncher;
 use serde_json::json;
@@ -13,6 +13,107 @@ const DEEPSEEK_URL: &str = "https://chat.deepseek.com/";
 const GROK_URL: &str = "https://grok.com/";
 const GEMINI_URL: &str = "https://gemini.google.com/app";
 const SETTINGS_FILENAME: &str = "settings.json";
+const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+G";
+
+const MASKING_SCRIPT: &str = r#"
+(function() {
+  if (window.__TAURI_MASKING_APPLIED__) return;
+  window.__TAURI_MASKING_APPLIED__ = true;
+
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
+
+  // 1. Mock UserAgentData
+  const userAgentData = {
+    brands: [
+      { brand: 'Not(A:Brand', version: '99' },
+      { brand: 'Google Chrome', version: '132' },
+      { brand: 'Chromium', version: '132' }
+    ],
+    mobile: false,
+    platform: 'macOS',
+    getHighEntropyValues: function(hints) {
+      return Promise.resolve({
+        brands: this.brands,
+        mobile: this.mobile,
+        platform: this.platform,
+        architecture: 'arm',
+        bitness: '64',
+        model: '',
+        platformVersion: '14.3.1',
+        uaFullVersion: '132.0.6834.110'
+      });
+    }
+  };
+
+  // 2. Define Navigator Overrides
+  const overrides = {
+    userAgent: UA,
+    appVersion: UA.replace('Mozilla/', ''),
+    userAgentData: userAgentData,
+    webdriver: false,
+    languages: ['zh-CN', 'zh', 'en-US', 'en'],
+    language: 'zh-CN',
+    vendor: 'Google Inc.',
+    productSub: '20030107',
+    deviceMemory: 8,
+    hardwareConcurrency: 8,
+    maxTouchPoints: 0,
+    pdfViewerEnabled: true,
+  };
+
+  // 3. Hijack Navigator using Proxy for robustness
+  const rawNavigator = window.navigator;
+  const proxiedNavigator = new Proxy(rawNavigator, {
+    get: (target, prop) => {
+      if (prop in overrides) return overrides[prop];
+      let val = target[prop];
+      if (typeof val === 'function') val = val.bind(target);
+      return val;
+    }
+  });
+
+  Object.defineProperty(window, 'navigator', {
+    value: proxiedNavigator,
+    configurable: false,
+    enumerable: true,
+    writable: false
+  });
+
+  // 4. Mock window.chrome
+  window.chrome = {
+    runtime: {},
+    loadTimes: function() {},
+    csi: function() {},
+    app: {}
+  };
+
+  // 5. WebGL Masking
+  const getParameter = WebGLRenderingContext.prototype.getParameter;
+  WebGLRenderingContext.prototype.getParameter = function(parameter) {
+    if (parameter === 37445) return 'Intel Inc.';
+    if (parameter === 37446) return 'Intel(R) Iris(R) Plus Graphics 640';
+    return getParameter.apply(this, arguments);
+  };
+
+  // 6. Permissions Mock
+  if (navigator.permissions && navigator.permissions.query) {
+    const originalQuery = navigator.permissions.query;
+    navigator.permissions.query = function(descriptor) {
+      if (descriptor.name === 'notifications') {
+        return Promise.resolve({ state: 'default', onchange: null });
+      }
+      return originalQuery.apply(this, arguments);
+    };
+  }
+
+  // 7. Clean up automation signatures
+  for (const prop in window) {
+    if (prop.startsWith('cdc_') || prop.startsWith('__playwright')) {
+      try { delete window[prop]; } catch(e) {}
+    }
+  }
+})();
+"#;
 
 fn save_last_url(app: &AppHandle, url: &str) {
     let store = app.store(SETTINGS_FILENAME).unwrap();
@@ -30,11 +131,11 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let is_english = current_lang == "en";
     
     // Get text based on language
-    let (quit_text, reload_text, open_browser_text, autostart_text, models_text, lang_text, proxy_text) = 
+    let (quit_text, reload_text, open_browser_text, autostart_text, models_text, lang_text, proxy_text, shortcut_text) = 
         if is_english {
-            ("Quit", "Reload", "Open in Browser", "Launch at Login", "Models", "Language", "Proxy Settings")
+            ("Quit", "Reload", "Open in Browser", "Launch at Login", "Models", "Language", "Proxy Settings", "Shortcut Settings")
         } else {
-            ("退出", "重新加载", "在浏览器打开", "开机自启", "模型", "语言", "代理设置")
+            ("退出", "重新加载", "在浏览器打开", "开机自启", "模型", "语言", "代理设置", "快捷键设置")
         };
 
     let quit_i = MenuItem::with_id(app, "quit", quit_text, true, None::<&str>)?;
@@ -49,6 +150,9 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     
     // Proxy settings
     let proxy_i = MenuItem::with_id(app, "proxy", proxy_text, true, None::<&str>)?;
+    
+    // Shortcut settings
+    let shortcut_i = MenuItem::with_id(app, "shortcut", shortcut_text, true, None::<&str>)?;
     
     // Models submenu - get current model from last_url
     let current_url = store.get("last_url")
@@ -82,6 +186,7 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &language_submenu,
         &reload_i,
         &open_browser_i,
+        &shortcut_i,
         &proxy_i,
         &autostart_i,
         &quit_i,
@@ -101,85 +206,8 @@ fn switch_model(app: &AppHandle, url: &str) {
         save_last_url(app, url);
         
         // Inject loading overlay into current page
-        let loading_script = format!(r#"
-            (function() {{
-                // Create overlay
-                var overlay = document.createElement('div');
-                overlay.id = 'chathub-loading-overlay';
-                overlay.innerHTML = `
-                    <style>
-                        #chathub-loading-overlay {{
-                            position: fixed;
-                            top: 0;
-                            left: 0;
-                            width: 100vw;
-                            height: 100vh;
-                            background: #f6f6f6;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            z-index: 999999;
-                            gap: 2rem;
-                        }}
-                        @media (prefers-color-scheme: dark) {{
-                            #chathub-loading-overlay {{ background: #2f2f2f; }}
-                            #chathub-loading-overlay .loading-text {{ color: #d1d5db; }}
-                        }}
-                        #chathub-loading-overlay .dots {{
-                            display: flex;
-                            align-items: flex-end;
-                            gap: 8px;
-                            height: 50px;
-                        }}
-                        #chathub-loading-overlay .dot {{
-                            border-radius: 50%;
-                            animation: chathub-bounce 0.6s ease-in-out infinite;
-                        }}
-                        #chathub-loading-overlay .dot-1 {{
-                            width: 24px;
-                            height: 24px;
-                            background-color: #f87171;
-                            animation-delay: 0s;
-                        }}
-                        #chathub-loading-overlay .dot-2 {{
-                            width: 22px;
-                            height: 22px;
-                            background-color: #2dd4bf;
-                            animation-delay: 0.1s;
-                        }}
-                        #chathub-loading-overlay .dot-3 {{
-                            width: 18px;
-                            height: 18px;
-                            background-color: #7dd3fc;
-                            animation-delay: 0.2s;
-                        }}
-                        @keyframes chathub-bounce {{
-                            0%, 100% {{ transform: translateY(0); }}
-                            50% {{ transform: translateY(-20px); }}
-                        }}
-                        #chathub-loading-overlay .loading-text {{
-                            font-size: 1.5rem;
-                            font-weight: 500;
-                            color: #374151;
-                            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-                        }}
-                    </style>
-                    <div class="dots">
-                        <div class="dot dot-1"></div>
-                        <div class="dot dot-2"></div>
-                        <div class="dot dot-3"></div>
-                    </div>
-                    <p class="loading-text">模型加载中...</p>
-                `;
-                document.body.appendChild(overlay);
-                
-                // Navigate after animation shows
-                setTimeout(function() {{
-                    window.location.href = '{}';
-                }}, 800);
-            }})();
-        "#, url);
+        let loading_script = include_str!("loading_overlay.ts")
+            .replace("__TARGET_URL__", url);
         
         let _ = window.eval(&loading_script);
         let _ = window.show();
@@ -191,13 +219,18 @@ fn switch_model(app: &AppHandle, url: &str) {
 
 fn toggle_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
+        let is_visible = window.is_visible().unwrap_or(false);
+        log_debug(&format!("Backend: Window visibility before toggle: {}", is_visible));
+        if is_visible {
             let _ = window.hide();
+            log_debug("Backend: Hiding window");
         } else {
-            let _ = window.move_window(Position::TrayCenter);
             let _ = window.show();
             let _ = window.set_focus();
+            log_debug("Backend: Showing and focusing window");
         }
+    } else {
+        log_debug("Backend: Could not find main window during toggle");
     }
 }
 
@@ -210,6 +243,17 @@ fn get_last_model_url(app: AppHandle) -> String {
     CHATGPT_URL.to_string()
 }
 
+fn log_debug(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/Users/opera/Documents/self/chathub-desktop/tauri_debug.log")
+        .unwrap();
+    let _ = writeln!(file, "{}", msg);
+}
+
 #[tauri::command]
 fn save_proxy(app: AppHandle, proxy: String) {
     let store = app.store(SETTINGS_FILENAME).unwrap();
@@ -219,12 +263,24 @@ fn save_proxy(app: AppHandle, proxy: String) {
 
 #[tauri::command]
 fn close_proxy_window(app: AppHandle) {
-    println!("Backend: Closing proxy window...");
     if let Some(win) = app.get_webview_window("proxy") {
         let _ = win.close();
-        println!("Backend: Window closed successfully.");
-    } else {
-        println!("Backend: Proxy window not found!");
+    }
+}
+
+#[tauri::command]
+fn save_shortcut(app: AppHandle, shortcut: String) {
+    log_debug(&format!("Backend: Saving new shortcut to store: {}", shortcut));
+    
+    let store = app.store(SETTINGS_FILENAME).unwrap();
+    store.set("shortcut", json!(shortcut));
+    let _ = store.save();
+}
+
+#[tauri::command]
+fn close_shortcut_window(app: AppHandle) {
+    if let Some(win) = app.get_webview_window("shortcut") {
+        let _ = win.close();
     }
 }
 
@@ -236,11 +292,40 @@ pub fn run() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_last_model_url, save_proxy, close_proxy_window])
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state() == ShortcutState::Pressed {
+                        toggle_window(app);
+                    }
+                })
+                .build(),
+        )
+        .invoke_handler(tauri::generate_handler![
+            get_last_model_url, 
+            save_proxy, 
+            close_proxy_window,
+            save_shortcut,
+            close_shortcut_window
+        ])
         .setup(|app| {
             // Hide dock icon on macOS
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Create main window with identity masking
+            let _main_window = tauri::webview::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::default(),
+            )
+            .title("ChatHub Desktop")
+            .inner_size(900.0, 600.0)
+            .visible(false)
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
+            .initialization_script(MASKING_SCRIPT)
+            .build()?;
 
             // Create initial menu
             let menu = create_tray_menu(app.handle())?;
@@ -290,8 +375,73 @@ pub fn run() {
                             let _ = store.save();
                             update_tray_menu(app);
                         }
+                        "shortcut" => {
+                            let store = app.store(SETTINGS_FILENAME).unwrap();
+                            let current_lang = store.get("language")
+                                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                                .unwrap_or_else(|| "zh".to_string());
+                            let current_shortcut = store.get("shortcut")
+                                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                                .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+                            
+                            let is_english = current_lang == "en";
+                            
+                            if let Some(shortcut_win) = app.get_webview_window("shortcut") {
+                                let _ = shortcut_win.set_focus();
+                                return;
+                            }
+
+                            let title = if is_english { "Shortcut Settings" } else { "快捷键设置" };
+                            let ok_text = if is_english { "Save" } else { "保存" };
+                            let cancel_text = if is_english { "Cancel" } else { "取消" };
+                            let hint_text = if is_english { "Press keys to set new shortcut" } else { "按下按键组合以设置快捷键" };
+
+                            let query_params = format!(
+                                "?title={title}&hint={hint}&current={current}&cancelText={cancelText}&okText={okText}",
+                                title = urlencoding::encode(&title),
+                                hint = urlencoding::encode(&hint_text),
+                                current = urlencoding::encode(&current_shortcut),
+                                cancelText = urlencoding::encode(&cancel_text),
+                                okText = urlencoding::encode(&ok_text)
+                            );
+
+                            // Unregister current shortcut before opening settings
+                            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+                            if let Ok(current_s) = current_shortcut.parse::<Shortcut>() {
+                                log_debug("Backend: Suppressing global shortcut for recording");
+                                let _ = app.global_shortcut().unregister(current_s);
+                            }
+
+                            let window = tauri::webview::WebviewWindowBuilder::new(
+                                app,
+                                "shortcut",
+                                tauri::WebviewUrl::App(format!("shortcut.html{}", query_params).into())
+                            )
+                            .title(title)
+                            .inner_size(420.0, 200.0)
+                            .resizable(false)
+                            .minimizable(false)
+                            .always_on_top(true)
+                            .center()
+                            .build()
+                            .unwrap();
+
+                            let app_handle = app.clone();
+                            window.on_window_event(move |event| {
+                                if let tauri::WindowEvent::Destroyed = event {
+                                    let store = app_handle.store(SETTINGS_FILENAME).unwrap();
+                                    let shortcut_str = store.get("shortcut")
+                                        .and_then(|v: serde_json::Value| v.as_str().map(|s| s.to_string()))
+                                        .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+                                    
+                                    if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
+                                        log_debug(&format!("Backend: Re-enabling global shortcut: {}", shortcut_str));
+                                        let _ = app_handle.global_shortcut().register(shortcut);
+                                    }
+                                }
+                            });
+                        }
                         "proxy" => {
-                            // Get current proxy setting
                             let store = app.store(SETTINGS_FILENAME).unwrap();
                             let current_lang = store.get("language")
                                 .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -302,13 +452,11 @@ pub fn run() {
                             
                             let is_english = current_lang == "en";
                             
-                            // If window already exists, focus it
                             if let Some(proxy_win) = app.get_webview_window("proxy") {
                                 let _ = proxy_win.set_focus();
                                 return;
                             }
 
-                            // Create a small separate window for proxy settings
                             let title = if is_english { "Proxy Settings" } else { "代理设置" };
                             let ok_text = if is_english { "Save" } else { "保存" };
                             let cancel_text = if is_english { "Cancel" } else { "取消" };
@@ -353,20 +501,18 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Register Global Shortcut
-            // Ensure capabilities allow this in tauri.conf.json / capabilities
-            use tauri_plugin_global_shortcut::{ShortcutState};
-            
-            app.handle().plugin(
-                tauri_plugin_global_shortcut::Builder::new()
-                    .with_shortcut("CommandOrControl+Shift+G")?
-                    .with_handler(|app, _shortcut, event| {
-                        if event.state() == ShortcutState::Pressed {
-                             toggle_window(app);
-                        }
-                    })
-                    .build(),
-            )?;
+            let store = app.handle().store(SETTINGS_FILENAME).unwrap();
+            let shortcut_str = store.get("shortcut")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+
+            if !shortcut_str.is_empty() {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+                if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
+                    log_debug(&format!("Backend: Registering initial shortcut: {}", shortcut_str));
+                    let _ = app.global_shortcut().register(shortcut);
+                }
+            }
 
             Ok(())
         })

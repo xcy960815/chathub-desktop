@@ -1,0 +1,257 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>快捷键设置</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: #1a1a1a;
+        --input-bg: #f2f2f7;
+        --btn-ok: #007aff;
+        --btn-cancel: #f2f2f7;
+        --hint: #8e8e93;
+        --accent: #007aff;
+        --border: rgba(0, 0, 0, 0.05);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1c1e;
+          --text: #ffffff;
+          --input-bg: #2c2c2e;
+          --btn-ok: #0a84ff;
+          --btn-cancel: #2c2c2e;
+          --hint: #8e8e93;
+          --accent: #0a84ff;
+          --border: rgba(255, 255, 255, 0.1);
+        }
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        margin: 0;
+        padding: 20px;
+        overflow: hidden;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .hint {
+        font-size: 13px;
+        color: var(--hint);
+        line-height: 1.4;
+      }
+
+      .shortcut-display {
+        width: 100%;
+        padding: 12px 14px;
+        background: var(--input-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        box-sizing: border-box;
+        color: var(--hint);
+        min-height: 43px;
+      }
+      .shortcut-display:focus {
+        outline: none;
+        border-color: var(--accent);
+        background: var(--bg);
+        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
+        color: var(--accent);
+      }
+      .shortcut-display.has-value {
+        color: var(--text);
+      }
+      .shortcut-display.recording {
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 4px;
+      }
+      button {
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+      }
+      .btn-cancel {
+        background: var(--btn-cancel);
+        color: var(--text);
+      }
+      .btn-cancel:hover {
+        filter: brightness(0.95);
+      }
+      .btn-clear {
+        background: var(--btn-cancel);
+        color: #ff3b30;
+      }
+      .btn-clear:hover {
+        background: #ff3b3015;
+      }
+      .btn-ok {
+        background: var(--btn-ok);
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
+      }
+      .btn-ok:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+      }
+      .btn-ok:active {
+        transform: translateY(0);
+      }
+      .btn-ok:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div id="hint-text" class="hint">按下按键组合以设置快捷键</div>
+      </div>
+      <div id="shortcut-box" class="shortcut-display" tabindex="0">请录入...</div>
+
+      <div class="buttons">
+        <button class="btn-clear" id="clear-btn">清空</button>
+        <div style="flex: 1"></div>
+        <button class="btn-cancel" id="cancel-btn">取消</button>
+        <button class="btn-ok" id="save-btn" disabled>保存</button>
+      </div>
+    </div>
+
+    <script>
+      const invoke = window.__TAURI__.core.invoke
+      const box = document.getElementById('shortcut-box')
+      const saveBtn = document.getElementById('save-btn')
+      const cancelBtn = document.getElementById('cancel-btn')
+      const clearBtn = document.getElementById('clear-btn')
+      const hintEl = document.getElementById('hint-text')
+
+      let currentShortcut = ''
+      let placeholder = '请录入...'
+
+      const params = new URLSearchParams(window.location.search)
+      hintEl.textContent = params.get('hint') || '按下按键组合以设置快捷键'
+      cancelBtn.textContent = params.get('cancelText') || '取消'
+      saveBtn.textContent = params.get('okText') || '保存'
+      currentShortcut = params.get('current') || ''
+
+      if (currentShortcut) {
+        updateDisplay(currentShortcut)
+        saveBtn.disabled = false
+      } else {
+        box.textContent = placeholder
+      }
+
+      function formatShortcut(str) {
+        return str
+          .replace('CommandOrControl', 'Cmd/Ctrl')
+          .replace('Alt', 'Option/Alt')
+          .replace('Shift', 'Shift')
+          .replace('+', ' + ')
+      }
+
+      function updateDisplay(val) {
+        if (val) {
+          box.textContent = formatShortcut(val)
+          box.classList.add('has-value')
+        } else {
+          box.textContent = placeholder
+          box.classList.remove('has-value')
+        }
+      }
+
+      box.addEventListener('focus', () => {
+        box.classList.add('recording')
+        if (!currentShortcut) {
+          box.textContent = '请录入...'
+        }
+      })
+
+      box.addEventListener('blur', () => {
+        box.classList.remove('recording')
+        updateDisplay(currentShortcut)
+      })
+
+      box.addEventListener('keydown', (e) => {
+        e.preventDefault()
+
+        const keys = []
+        if (e.ctrlKey || e.metaKey) keys.push('CommandOrControl')
+        if (e.altKey) keys.push('Alt')
+        if (e.shiftKey) keys.push('Shift')
+
+        const key = e.key.toUpperCase()
+        const isModifier = ['CONTROL', 'META', 'ALT', 'SHIFT'].includes(key)
+
+        if (!isModifier) {
+          let finalKey = key
+          if (key === ' ') finalKey = 'Space'
+
+          if (keys.length > 0) {
+            currentShortcut = keys.join('+') + '+' + finalKey
+            updateDisplay(currentShortcut)
+            saveBtn.disabled = false
+            box.blur()
+          }
+        }
+      })
+
+      clearBtn.onclick = () => {
+        currentShortcut = ''
+        updateDisplay('')
+        saveBtn.disabled = false
+        box.blur()
+      }
+
+      cancelBtn.onclick = () => invoke('close_shortcut_window')
+      saveBtn.onclick = async () => {
+        await invoke('save_shortcut', { shortcut: currentShortcut })
+        await invoke('close_shortcut_window')
+      }
+
+      // Focus on load
+      box.focus()
+    </script>
+  </body>
+</html>
