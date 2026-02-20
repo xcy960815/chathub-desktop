@@ -26,6 +26,19 @@ onMounted(async () => {
     }, 300)
   })
 
+  // 监听登录成功
+  await listen('login_success', (event: Event<Record<string, unknown>>) => {
+    const userInfo = event.payload
+    console.log('[OAuth] 登录成功:', userInfo)
+    // TODO: 更新 UI 状态（如显示用户头像、用户名等）
+  })
+
+  // 监听登录失败
+  await listen('login_error', (event: Event<string>) => {
+    console.error('[OAuth] 登录失败:', event.payload)
+    // TODO: 显示错误提示给用户
+  })
+
   try {
     const url = await invoke('get_last_model_url')
     if (url && typeof url === 'string') {
