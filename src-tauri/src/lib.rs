@@ -22,6 +22,8 @@ const CHATGPT_URL: &str = "https://chatgpt.com";
 const DEEPSEEK_URL: &str = "https://chat.deepseek.com/";
 const GROK_URL: &str = "https://grok.com/";
 const GEMINI_URL: &str = "https://gemini.google.com/app";
+const QWEN_URL: &str = "https://www.qianwen.com/chat";
+const DOUBAO_URL: &str = "https://www.doubao.com/chat/";
 const SETTINGS_FILENAME: &str = "settings.json";
 const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+G";
 // macOS Chrome 131 UA
@@ -112,7 +114,7 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let is_english = current_lang == "en";
     
     // 根据语言获取文本
-        let (quit_text, reload_text, open_browser_text, autostart_text, models_text, lang_text, proxy_text, shortcut_text, google_login_text) = 
+        let (quit_text, reload_text, open_browser_text, autostart_text, models_text, lang_text, proxy_text, shortcut_text, _google_login_text) = 
         if is_english {
             ("Quit", "Reload", "Open in Browser", "Launch at Login", "Models", "Language", "Proxy Settings", "Shortcut Settings", "Login with Google")
         } else {
@@ -139,15 +141,19 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let current_url = store.get("last_url")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| CHATGPT_URL.to_string());
-    let chatgpt_item = CheckMenuItem::with_id(app, "chatgpt", "ChatGPT", true, current_url == CHATGPT_URL, None::<&str>)?;
     let deepseek_item = CheckMenuItem::with_id(app, "deepseek", "DeepSeek", true, current_url == DEEPSEEK_URL, None::<&str>)?;
+    let doubao_item = CheckMenuItem::with_id(app, "doubao", "Doubao", true, current_url == DOUBAO_URL, None::<&str>)?;
+    let qwen_item = CheckMenuItem::with_id(app, "qwen", "Qwen", true, current_url == QWEN_URL, None::<&str>)?;
+    
+    let chatgpt_item = CheckMenuItem::with_id(app, "chatgpt", "ChatGPT", true, current_url == CHATGPT_URL, None::<&str>)?;
     let grok_item = CheckMenuItem::with_id(app, "grok", "Grok", true, current_url == GROK_URL, None::<&str>)?;
     let gemini_item = CheckMenuItem::with_id(app, "gemini", "Gemini", true, current_url == GEMINI_URL, None::<&str>)?;
+
     let models_submenu = Submenu::with_items(
         app,
         models_text,
         true,
-        &[&chatgpt_item, &deepseek_item, &grok_item, &gemini_item],
+        &[&deepseek_item, &doubao_item, &qwen_item, &chatgpt_item, &grok_item, &gemini_item],
     )?;
 
     // 语言子菜单
@@ -159,16 +165,12 @@ fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[&lang_zh_item, &lang_en_item],
     )?;
-
-    // Google 登录按钮
-    let google_login_item = MenuItem::with_id(app, "google_login", google_login_text, true, None::<&str>)?;
     
     Menu::with_items(app, &[
         &models_submenu,
         &language_submenu,
         &reload_item,
         &open_browser_item,
-        &google_login_item,
         &shortcut_item,
         &proxy_item,
         &autostart_item,
@@ -698,11 +700,12 @@ pub fn run() {
                                 let _ = autostart_manager.enable();
                             }
                         }
-                        // 模型切换
                         "chatgpt" => switch_model(app, CHATGPT_URL),
                         "deepseek" => switch_model(app, DEEPSEEK_URL),
                         "grok" => switch_model(app, GROK_URL),
                         "gemini" => switch_model(app, GEMINI_URL),
+                        "qwen" => switch_model(app, QWEN_URL),
+                        "doubao" => switch_model(app, DOUBAO_URL),
                         // 语言切换
                         "lang_zh" => {
                             let store = app.store(SETTINGS_FILENAME).unwrap();
