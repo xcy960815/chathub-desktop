@@ -6,185 +6,331 @@
     <style>
       :root {
         --bg: #ffffff;
+        --panel: #f5f5f7;
+        --panel-strong: #ffffff;
         --text: #1a1a1a;
-        --input-bg: #f2f2f7;
-        --btn-ok: #007aff;
-        --btn-cancel: #f2f2f7;
-        --hint: #8e8e93;
-        --border: rgba(0, 0, 0, 0.05);
+        --muted: #6b7280;
+        --border: rgba(15, 23, 42, 0.08);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --danger: #dc2626;
       }
+
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #1c1c1e;
-          --text: #ffffff;
-          --input-bg: #2c2c2e;
-          --btn-ok: #0a84ff;
-          --btn-cancel: #2c2c2e;
-          --hint: #8e8e93;
-          --border: rgba(255, 255, 255, 0.1);
+          --bg: #17181c;
+          --panel: #22242a;
+          --panel-strong: #2a2d34;
+          --text: #f3f4f6;
+          --muted: #9ca3af;
+          --border: rgba(255, 255, 255, 0.08);
+          --accent: #5eead4;
+          --accent-soft: rgba(94, 234, 212, 0.12);
+          --danger: #f87171;
         }
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
-        background: var(--bg);
-        color: var(--text);
         margin: 0;
-        padding: 20px;
-        overflow: hidden;
+        padding: 18px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+        background: radial-gradient(circle at top, var(--panel), var(--bg) 58%);
+        color: var(--text);
         user-select: none;
         -webkit-font-smoothing: antialiased;
       }
+
       .container {
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
+        display: grid;
+        gap: 14px;
       }
-      .header {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
+
       .hint {
         font-size: 13px;
-        color: var(--hint);
-        line-height: 1.4;
+        line-height: 1.5;
+        color: var(--muted);
       }
-      .input-group {
-        position: relative;
+
+      .input-wrap {
+        display: grid;
+        gap: 8px;
       }
+
       input {
         width: 100%;
         padding: 12px 14px;
+        border-radius: 12px;
         border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--input-bg);
+        background: var(--panel-strong);
         color: var(--text);
         font-size: 14px;
-        box-sizing: border-box;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease;
       }
+
       input:focus {
         outline: none;
-        background: var(--bg);
-        border-color: var(--btn-ok);
-        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px var(--accent-soft);
       }
+
+      .history-block {
+        display: grid;
+        gap: 8px;
+      }
+
+      .history-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+
+      .history-list {
+        max-height: 150px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel-strong);
+      }
+
+      .history-empty {
+        padding: 16px 12px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .history-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .history-item:last-child {
+        border-bottom: none;
+      }
+
+      .history-value {
+        flex: 1;
+        font-size: 13px;
+        line-height: 1.4;
+        word-break: break-all;
+        cursor: pointer;
+      }
+
+      .history-value:hover {
+        color: var(--accent);
+      }
+
+      .history-delete {
+        border: none;
+        background: transparent;
+        color: var(--danger);
+        font-size: 12px;
+        cursor: pointer;
+      }
+
       .buttons {
         display: flex;
         justify-content: flex-end;
-        gap: 12px;
-        margin-top: 4px;
+        gap: 10px;
       }
+
       button {
-        padding: 10px 24px;
-        border-radius: 10px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
         border: none;
-        transition: all 0.2s;
+        border-radius: 10px;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
       }
+
+      .btn-clear {
+        margin-right: auto;
+        background: var(--panel);
+        color: var(--muted);
+      }
+
       .btn-cancel {
-        background: var(--btn-cancel);
+        background: var(--panel);
         color: var(--text);
       }
-      .btn-cancel:hover {
-        filter: brightness(0.95);
-      }
-      .btn-ok {
-        background: var(--btn-ok);
-        color: #fff;
-        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
-      }
-      .btn-ok:hover {
-        filter: brightness(1.1);
-        transform: translateY(-1px);
-      }
-      .btn-ok:active {
-        transform: translateY(0);
+
+      .btn-save {
+        background: var(--accent);
+        color: #ffffff;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <div id="hint-text" class="hint"></div>
+      <div id="hint-text" class="hint"></div>
+
+      <div class="input-wrap">
+        <input id="proxy-input" type="text" placeholder="" spellcheck="false" autocomplete="off" />
       </div>
-      <div class="input-group">
-        <input
-          type="text"
-          id="proxy-input"
-          value=""
-          placeholder=""
-          spellcheck="false"
-          autocomplete="off"
-        />
+
+      <div class="history-block">
+        <div id="history-label" class="history-title">最近使用</div>
+        <div id="history-list" class="history-list"></div>
       </div>
+
       <div class="buttons">
-        <button class="btn-cancel" id="cancel-btn">取消</button>
-        <button class="btn-ok" id="save-btn">保存</button>
+        <button id="clear-btn" class="btn-clear">清空</button>
+        <button id="cancel-btn" class="btn-cancel">取消</button>
+        <button id="save-btn" class="btn-save">保存</button>
       </div>
     </div>
+
     <script>
-      // Hybrid version to support various v2 injection methods
       async function getInvoke() {
         if (window.__TAURI__ && window.__TAURI__.core) {
           return window.__TAURI__.core.invoke
         }
-        // Wait a bit and try again
+
         return new Promise((resolve) => {
           let attempts = 0
-          const interval = setInterval(() => {
-            attempts++
+          const timer = setInterval(() => {
+            attempts += 1
             if (window.__TAURI__ && window.__TAURI__.core) {
-              clearInterval(interval)
+              clearInterval(timer)
               resolve(window.__TAURI__.core.invoke)
             } else if (attempts > 50) {
-              // 5 seconds
-              clearInterval(interval)
-              console.error('Tauri API not found after 5 seconds')
-              alert('无法连接到程序核心服务，请检查权限设置')
+              clearInterval(timer)
               resolve(null)
             }
           }, 100)
         })
       }
 
+      function readText(name, fallback) {
+        return new URLSearchParams(window.location.search).get(name) || fallback
+      }
+
+      function validateProxy(value) {
+        if (!value) {
+          return true
+        }
+
+        const candidate = value.includes('://') ? value : `http://${value}`
+
+        try {
+          const parsed = new URL(candidate)
+          return Boolean(parsed.hostname && parsed.port)
+        } catch {
+          return false
+        }
+      }
+
       async function init() {
         const invoke = await getInvoke()
-        if (!invoke) return
+        if (!invoke) {
+          alert('无法连接到程序核心服务，请稍后重试。')
+          return
+        }
 
         const input = document.getElementById('proxy-input')
         const hintEl = document.getElementById('hint-text')
+        const historyLabel = document.getElementById('history-label')
+        const historyList = document.getElementById('history-list')
+        const clearBtn = document.getElementById('clear-btn')
         const cancelBtn = document.getElementById('cancel-btn')
         const saveBtn = document.getElementById('save-btn')
 
+        const emptyHistoryText = readText('emptyHistory', '暂无历史记录')
+        const deleteText = readText('deleteText', '删除')
+
+        hintEl.textContent = readText('hint', '输入代理地址（如 socks5://127.0.0.1:7897）')
+        historyLabel.textContent = readText('historyLabel', '最近使用')
+        input.placeholder = readText('placeholder', '留空则禁用代理')
+        clearBtn.textContent = readText('clearText', '清空')
+        cancelBtn.textContent = readText('cancelText', '取消')
+        saveBtn.textContent = readText('okText', '保存')
+
+        const state = await invoke('get_proxy_dialog_data')
         const params = new URLSearchParams(window.location.search)
-        hintEl.textContent = params.get('hint') || '输入代理地址'
-        input.value = params.get('current') || ''
-        input.placeholder = params.get('placeholder') || '留空则禁用代理'
-        cancelBtn.textContent = params.get('cancelText') || '取消'
-        saveBtn.textContent = params.get('okText') || '保存'
+        let history = Array.isArray(state.history) ? [...state.history] : []
+        input.value = state.current || params.get('current') || ''
 
-        input.focus()
-        input.select()
+        const renderHistory = () => {
+          if (!history.length) {
+            historyList.innerHTML = `<div class="history-empty">${emptyHistoryText}</div>`
+            return
+          }
 
-        cancelBtn.onclick = () => invoke('close_proxy_window').catch((e) => console.error(e))
+          historyList.innerHTML = history
+            .map(
+              (item) => `
+                <div class="history-item" data-proxy="${encodeURIComponent(item)}">
+                  <div class="history-value">${item}</div>
+                  <button class="history-delete" type="button">${deleteText}</button>
+                </div>
+              `
+            )
+            .join('')
+
+          historyList.querySelectorAll('.history-value').forEach((node) => {
+            node.addEventListener('click', (event) => {
+              const row = event.currentTarget.closest('.history-item')
+              input.value = decodeURIComponent(row.dataset.proxy || '')
+              input.focus()
+            })
+          })
+
+          historyList.querySelectorAll('.history-delete').forEach((node) => {
+            node.addEventListener('click', async (event) => {
+              const row = event.currentTarget.closest('.history-item')
+              const value = decodeURIComponent(row.dataset.proxy || '')
+              await invoke('remove_proxy_history', { proxy: value })
+              history = history.filter((item) => item !== value)
+              renderHistory()
+            })
+          })
+        }
+
+        cancelBtn.onclick = () => invoke('close_proxy_window').catch(console.error)
+        clearBtn.onclick = () => {
+          input.value = ''
+          input.focus()
+        }
+
         saveBtn.onclick = async () => {
-          const val = input.value.trim()
+          const value = input.value.trim()
+          if (!validateProxy(value)) {
+            alert('代理地址格式无效，请输入类似 socks5://127.0.0.1:7897 的地址。')
+            input.focus()
+            return
+          }
+
           try {
-            await invoke('save_proxy', { proxy: val })
+            await invoke('save_proxy', { proxy: value })
             await invoke('close_proxy_window')
-          } catch (e) {
-            console.error('Invoke failed:', e)
-            alert('保存失败: ' + e)
+          } catch (error) {
+            alert(`保存失败：${error}`)
           }
         }
 
-        input.onkeydown = (e) => {
-          if (e.key === 'Enter') saveBtn.click()
-          if (e.key === 'Escape') cancelBtn.click()
-        }
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            saveBtn.click()
+          }
+          if (event.key === 'Escape') {
+            cancelBtn.click()
+          }
+        })
+
+        renderHistory()
+        input.focus()
+        input.select()
       }
 
       init()

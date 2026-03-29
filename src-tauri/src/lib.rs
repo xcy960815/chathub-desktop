@@ -1,34 +1,30 @@
-use tauri::{
+mod settings;
 
-    menu::{Menu, MenuItem, Submenu, CheckMenuItem},
+use tauri::{
+    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Emitter,
+    AppHandle, Emitter, Manager,
 };
 
-
-
-use tauri_plugin_store::StoreExt;
-use tauri_plugin_autostart::MacosLauncher;
-use serde_json::json;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::Rng;
-use sha2::{Sha256, Digest};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use settings::{
+    load_app_settings, normalize_model_id, normalize_proxy, remove_history, save_app_settings,
+    upsert_history, CHATGPT_MODEL_ID, DEEPSEEK_MODEL_ID, DEFAULT_SHORTCUT, DOUBAO_MODEL_ID,
+    GEMINI_MODEL_ID, GROK_MODEL_ID, QWEN_MODEL_ID, SETTINGS_FILENAME,
+};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use serde::Deserialize;
-
-
-const CHATGPT_URL: &str = "https://chatgpt.com";
-const DEEPSEEK_URL: &str = "https://chat.deepseek.com/";
-const GROK_URL: &str = "https://grok.com/";
-const GEMINI_URL: &str = "https://gemini.google.com/app";
-const QWEN_URL: &str = "https://www.qianwen.com/chat";
-const DOUBAO_URL: &str = "https://www.doubao.com/chat/";
-const SETTINGS_FILENAME: &str = "settings.json";
-const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+G";
+use std::sync::Mutex;
+use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_store::StoreExt;
 // macOS Chrome 131 UA
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
+const RELEASES_URL: &str = "https://github.com/xcy960815/chathub-desktop/releases";
+const RELEASES_API_URL: &str =
+    "https://api.github.com/repos/xcy960815/chathub-desktop/releases/latest";
 
 // Google OAuth 配置
 // 注意: 需要在 Google Cloud Console 创建 OAuth 2.0 Client ID
@@ -57,7 +53,6 @@ struct TokenResponse {
     id_token: Option<String>,
 }
 
-
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
 struct UserInfo {
     id: String,
@@ -69,6 +64,25 @@ struct UserInfo {
     family_name: Option<String>,
     picture: Option<String>,
     locale: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ProxyDialogData {
+    current: String,
+    history: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ShortcutDialogData {
+    current: String,
+    history: Vec<String>,
+    default_shortcut: String,
 }
 
 fn generate_pkce_verifier() -> String {
@@ -92,90 +106,285 @@ fn generate_random_state() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+fn build_http_client(app: &AppHandle) -> reqwest::Client {
+    let settings = load_app_settings(app);
+    let mut builder = reqwest::Client::builder().user_agent(USER_AGENT);
 
-/**
- * 保存最后使用的URL
- */
-fn save_last_url(app: &AppHandle, url: &str) {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
-    store.set("last_url", json!(url));
-    let _ = store.save();
+    if let Some(proxy) = settings.proxy.as_deref() {
+        if let Ok(proxy_value) = reqwest::Proxy::all(proxy)
+            .or_else(|_| reqwest::Proxy::http(proxy))
+            .or_else(|_| reqwest::Proxy::https(proxy))
+        {
+            builder = builder.proxy(proxy_value);
+        }
+    }
+
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
+
+fn save_current_model_url(app: &AppHandle, url: &str) {
+    let mut settings = load_app_settings(app);
+    settings.set_current_url(url.to_string());
+    save_app_settings(app, &settings);
+}
+
+fn show_js_alert(app: &AppHandle, message: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let payload = serde_json::to_string(message)
+            .unwrap_or_else(|_| "\"操作失败，请稍后重试\"".to_string());
+        let _ = window.eval(&format!("window.alert({payload});"));
+    }
+}
+
+fn toggle_always_on_top(app: &AppHandle) {
+    let mut settings = load_app_settings(app);
+    settings.always_on_top = !settings.always_on_top;
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(settings.always_on_top);
+    }
+
+    save_app_settings(app, &settings);
+    update_tray_menu(app);
+}
+
+fn is_newer_version(version1: &str, version2: &str) -> bool {
+    let left = version1
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0));
+    let right = version2
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0));
+
+    let left_parts: Vec<u32> = left.collect();
+    let right_parts: Vec<u32> = right.collect();
+    let max_len = left_parts.len().max(right_parts.len());
+
+    for index in 0..max_len {
+        let left_part = *left_parts.get(index).unwrap_or(&0);
+        let right_part = *right_parts.get(index).unwrap_or(&0);
+
+        if left_part > right_part {
+            return true;
+        }
+        if left_part < right_part {
+            return false;
+        }
+    }
+
+    false
+}
+
+async fn check_for_updates(app: AppHandle) {
+    let client = build_http_client(&app);
+    let response = match client
+        .get(RELEASES_API_URL)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            show_js_alert(&app, &format!("检查更新失败：{error}"));
+            return;
+        }
+    };
+
+    if !response.status().is_success() {
+        show_js_alert(
+            &app,
+            &format!("检查更新失败：GitHub API 返回 {}", response.status()),
+        );
+        return;
+    }
+
+    let release = match response.json::<GitHubRelease>().await {
+        Ok(release) => release,
+        Err(error) => {
+            show_js_alert(&app, &format!("解析更新信息失败：{error}"));
+            return;
+        }
+    };
+
+    let latest_version = release.tag_name.trim_start_matches('v');
+    let current_version = app.package_info().version.to_string();
+
+    if is_newer_version(latest_version, &current_version) {
+        let download_url = release.html_url.unwrap_or_else(|| RELEASES_URL.to_string());
+        let _ = tauri_plugin_opener::open_url(download_url, None::<&str>);
+        show_js_alert(
+            &app,
+            &format!(
+                "发现新版本 {latest_version}，已为你打开下载页面。当前版本：{current_version}"
+            ),
+        );
+    } else {
+        show_js_alert(&app, "当前已经是最新版本。");
+    }
 }
 /**
  * 创建托盘菜单
  */
 fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    // 获取当前语言设置
-    let store = app.store(SETTINGS_FILENAME).unwrap();
-    let current_lang = store.get("language")
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "zh".to_string());
-    
+    let settings = load_app_settings(app);
+    let current_lang = settings.menu_language.clone();
     let is_english = current_lang == "en";
-    
-    // 根据语言获取文本
-        let (quit_text, reload_text, open_browser_text, autostart_text, models_text, lang_text, proxy_text, shortcut_text, _google_login_text) = 
-        if is_english {
-            ("Quit", "Reload", "Open in Browser", "Launch at Login", "Models", "Language", "Proxy Settings", "Shortcut Settings", "Login with Google")
-        } else {
-            ("退出", "重新加载", "在浏览器打开", "开机自启", "模型", "语言", "代理设置", "快捷键设置", "登录 Google")
-        };
+
+    let (
+        quit_text,
+        reload_text,
+        open_browser_text,
+        autostart_text,
+        always_on_top_text,
+        models_text,
+        lang_text,
+        proxy_text,
+        shortcut_text,
+        check_updates_text,
+    ) = if is_english {
+        (
+            "Quit",
+            "Reload",
+            "Open in Browser",
+            "Launch at Login",
+            "Always on Top",
+            "Models",
+            "Language",
+            "Proxy Settings",
+            "Shortcut Settings",
+            "Check for Updates",
+        )
+    } else {
+        (
+            "退出",
+            "重新加载",
+            "在浏览器打开",
+            "开机自启",
+            "窗口置顶",
+            "模型",
+            "语言",
+            "代理设置",
+            "快捷键设置",
+            "检查更新",
+        )
+    };
 
     let quit_item = MenuItem::with_id(app, "quit", quit_text, true, None::<&str>)?;
     let reload_item = MenuItem::with_id(app, "reload", reload_text, true, None::<&str>)?;
-    let open_browser_item = MenuItem::with_id(app, "open_browser", open_browser_text, true, None::<&str>)?;
-    
-    // 检查是否启用了开机自启
+    let open_browser_item =
+        MenuItem::with_id(app, "open_browser", open_browser_text, true, None::<&str>)?;
+    let check_updates_item =
+        MenuItem::with_id(app, "check_updates", check_updates_text, true, None::<&str>)?;
+
     use tauri_plugin_autostart::ManagerExt;
     let autostart_manager = app.autolaunch();
     let is_autostart_enabled = autostart_manager.is_enabled().unwrap_or(false);
-    let autostart_item = CheckMenuItem::with_id(app, "autostart", autostart_text, true, is_autostart_enabled, None::<&str>)?;
-    
-    // 代理设置
+    let autostart_item = CheckMenuItem::with_id(
+        app,
+        "autostart",
+        autostart_text,
+        true,
+        is_autostart_enabled,
+        None::<&str>,
+    )?;
+    let always_on_top_item = CheckMenuItem::with_id(
+        app,
+        "always_on_top",
+        always_on_top_text,
+        true,
+        settings.always_on_top,
+        None::<&str>,
+    )?;
+
     let proxy_item = MenuItem::with_id(app, "proxy", proxy_text, true, None::<&str>)?;
-    
-    // 快捷键设置
     let shortcut_item = MenuItem::with_id(app, "shortcut", shortcut_text, true, None::<&str>)?;
-    
-    // 模型子菜单 - 从 last_url 获取当前模型
-    let current_url = store.get("last_url")
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| CHATGPT_URL.to_string());
-    let deepseek_item = CheckMenuItem::with_id(app, "deepseek", "DeepSeek", true, current_url == DEEPSEEK_URL, None::<&str>)?;
-    let doubao_item = CheckMenuItem::with_id(app, "doubao", "Doubao", true, current_url == DOUBAO_URL, None::<&str>)?;
-    let qwen_item = CheckMenuItem::with_id(app, "qwen", "Qwen", true, current_url == QWEN_URL, None::<&str>)?;
-    
-    let chatgpt_item = CheckMenuItem::with_id(app, "chatgpt", "ChatGPT", true, current_url == CHATGPT_URL, None::<&str>)?;
-    let grok_item = CheckMenuItem::with_id(app, "grok", "Grok", true, current_url == GROK_URL, None::<&str>)?;
-    let gemini_item = CheckMenuItem::with_id(app, "gemini", "Gemini", true, current_url == GEMINI_URL, None::<&str>)?;
+
+    let current_model = normalize_model_id(&settings.model);
+    let chatgpt_item = CheckMenuItem::with_id(
+        app,
+        CHATGPT_MODEL_ID,
+        "ChatGPT",
+        true,
+        current_model == CHATGPT_MODEL_ID,
+        None::<&str>,
+    )?;
+    let grok_item = CheckMenuItem::with_id(
+        app,
+        GROK_MODEL_ID,
+        "Grok",
+        true,
+        current_model == GROK_MODEL_ID,
+        None::<&str>,
+    )?;
+    let gemini_item = CheckMenuItem::with_id(
+        app,
+        GEMINI_MODEL_ID,
+        "Gemini",
+        true,
+        current_model == GEMINI_MODEL_ID,
+        None::<&str>,
+    )?;
+    let deepseek_item = CheckMenuItem::with_id(
+        app,
+        DEEPSEEK_MODEL_ID,
+        "DeepSeek",
+        true,
+        current_model == DEEPSEEK_MODEL_ID,
+        None::<&str>,
+    )?;
+    let qwen_item = CheckMenuItem::with_id(
+        app,
+        QWEN_MODEL_ID,
+        "Qwen",
+        true,
+        current_model == QWEN_MODEL_ID,
+        None::<&str>,
+    )?;
+    let doubao_item = CheckMenuItem::with_id(
+        app,
+        DOUBAO_MODEL_ID,
+        "Doubao",
+        true,
+        current_model == DOUBAO_MODEL_ID,
+        None::<&str>,
+    )?;
 
     let models_submenu = Submenu::with_items(
         app,
         models_text,
         true,
-        &[&deepseek_item, &doubao_item, &qwen_item, &chatgpt_item, &grok_item, &gemini_item],
+        &[
+            &chatgpt_item,
+            &grok_item,
+            &gemini_item,
+            &deepseek_item,
+            &qwen_item,
+            &doubao_item,
+        ],
     )?;
 
-    // 语言子菜单
-    let lang_zh_item = CheckMenuItem::with_id(app, "lang_zh", "中文", true, !is_english, None::<&str>)?;
-    let lang_en_item = CheckMenuItem::with_id(app, "lang_en", "English", true, is_english, None::<&str>)?;
-    let language_submenu = Submenu::with_items(
+    let lang_zh_item =
+        CheckMenuItem::with_id(app, "lang_zh", "中文", true, !is_english, None::<&str>)?;
+    let lang_en_item =
+        CheckMenuItem::with_id(app, "lang_en", "English", true, is_english, None::<&str>)?;
+    let language_submenu =
+        Submenu::with_items(app, lang_text, true, &[&lang_zh_item, &lang_en_item])?;
+
+    Menu::with_items(
         app,
-        lang_text,
-        true,
-        &[&lang_zh_item, &lang_en_item],
-    )?;
-    
-    Menu::with_items(app, &[
-        &models_submenu,
-        &language_submenu,
-        &reload_item,
-        &open_browser_item,
-        &shortcut_item,
-        &proxy_item,
-        &autostart_item,
-        &quit_item,
-    ])
+        &[
+            &models_submenu,
+            &always_on_top_item,
+            &shortcut_item,
+            &proxy_item,
+            &autostart_item,
+            &language_submenu,
+            &reload_item,
+            &open_browser_item,
+            &check_updates_item,
+            &quit_item,
+        ],
+    )
 }
 
 /**
@@ -193,18 +402,20 @@ fn update_tray_menu(app: &AppHandle) {
  * 切换模型
  */
 fn switch_model(app: &AppHandle, url: &str) {
+    let target_model = normalize_model_id(url);
+    let mut settings = load_app_settings(app);
+    settings.set_model(target_model);
+    let target_url = settings.current_url();
+    save_app_settings(app, &settings);
+
     if let Some(window) = app.get_webview_window("main") {
-        save_last_url(app, url);
-        
-        // 向当前页面注入加载遮罩层
-        let loading_script = include_str!("loading_overlay.ts")
-            .replace("__TARGET_URL__", url);
-        
+        let loading_script =
+            include_str!("loading_overlay.ts").replace("__TARGET_URL__", &target_url);
+
         let _ = window.eval(&loading_script);
         let _ = window.show();
         let _ = window.set_focus();
     }
-    // 更新菜单以反映新的模型选择
     update_tray_menu(app);
 }
 
@@ -225,30 +436,38 @@ fn toggle_window(app: &AppHandle) {
 
 #[tauri::command]
 fn get_last_model_url(app: AppHandle) -> String {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
-    if let Some(url) = store.get("last_url") {
-        return url.as_str().unwrap_or(CHATGPT_URL).to_string();
-    }
-    CHATGPT_URL.to_string()
+    load_app_settings(&app).current_url()
 }
-
 
 fn log_debug(msg: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/Users/opera/Documents/self/chathub-desktop/tauri_debug.log")
-        .unwrap();
-    let _ = writeln!(file, "{}", msg);
+    let path = std::env::temp_dir().join("chathub-desktop-debug.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{}", msg);
+    }
+}
+
+fn build_initialization_script() -> String {
+    format!(
+        "{}\n{}",
+        include_str!("stealth_bridge.js"),
+        include_str!("navigation_bridge.js")
+    )
 }
 
 #[tauri::command]
-fn save_proxy(app: AppHandle, proxy: String) {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
-    store.set("proxy", json!(proxy));
-    let _ = store.save();
+fn save_proxy(app: AppHandle, proxy: String) -> Result<(), String> {
+    let normalized = normalize_proxy(&proxy)?;
+    let mut settings = load_app_settings(&app);
+    settings.proxy = normalized.clone();
+
+    if let Some(proxy_value) = normalized.as_deref() {
+        upsert_history(&mut settings.proxy_history, proxy_value);
+    }
+
+    save_app_settings(&app, &settings);
+    Ok(())
 }
 
 #[tauri::command]
@@ -259,10 +478,39 @@ fn close_proxy_window(app: AppHandle) {
 }
 
 #[tauri::command]
-fn save_shortcut(app: AppHandle, shortcut: String) {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
-    store.set("shortcut", json!(shortcut));
-    let _ = store.save();
+fn get_proxy_dialog_data(app: AppHandle) -> ProxyDialogData {
+    let settings = load_app_settings(&app);
+    ProxyDialogData {
+        current: settings.proxy.unwrap_or_default(),
+        history: settings.proxy_history,
+    }
+}
+
+#[tauri::command]
+fn remove_proxy_history(app: AppHandle, proxy: String) {
+    let mut settings = load_app_settings(&app);
+    remove_history(&mut settings.proxy_history, &proxy);
+    save_app_settings(&app, &settings);
+}
+
+#[tauri::command]
+fn save_shortcut(app: AppHandle, shortcut: String) -> Result<(), String> {
+    let normalized = if shortcut.trim().is_empty() {
+        DEFAULT_SHORTCUT.to_string()
+    } else {
+        shortcut.trim().to_string()
+    };
+
+    use tauri_plugin_global_shortcut::Shortcut;
+    normalized
+        .parse::<Shortcut>()
+        .map_err(|_| "快捷键格式无效，请重新录入".to_string())?;
+
+    let mut settings = load_app_settings(&app);
+    settings.toggle_shortcut = normalized.clone();
+    upsert_history(&mut settings.shortcut_history, &normalized);
+    save_app_settings(&app, &settings);
+    Ok(())
 }
 
 #[tauri::command]
@@ -272,9 +520,25 @@ fn close_shortcut_window(app: AppHandle) {
     }
 }
 
+#[tauri::command]
+fn get_shortcut_dialog_data(app: AppHandle) -> ShortcutDialogData {
+    let settings = load_app_settings(&app);
+    ShortcutDialogData {
+        current: settings.toggle_shortcut,
+        history: settings.shortcut_history,
+        default_shortcut: DEFAULT_SHORTCUT.to_string(),
+    }
+}
+
+#[tauri::command]
+fn remove_shortcut_history(app: AppHandle, shortcut: String) {
+    let mut settings = load_app_settings(&app);
+    remove_history(&mut settings.shortcut_history, &shortcut);
+    save_app_settings(&app, &settings);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-
     tauri::Builder::default()
         .manage(OauthState { pending: Mutex::new(HashMap::new()) })
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -298,8 +562,12 @@ pub fn run() {
             get_last_model_url, 
             save_proxy, 
             close_proxy_window,
+            get_proxy_dialog_data,
+            remove_proxy_history,
             save_shortcut,
-            close_shortcut_window
+            close_shortcut_window,
+            get_shortcut_dialog_data,
+            remove_shortcut_history
         ])
         .setup(|app| {
             // 注册深度链接回调处理
@@ -331,7 +599,9 @@ pub fn run() {
             // app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             // 创建主窗口
-            let _main_window = tauri::webview::WebviewWindowBuilder::new(
+            let navigation_app = app.handle().clone();
+            let initialization_script = build_initialization_script();
+            let main_window = tauri::webview::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::default(),
@@ -339,48 +609,40 @@ pub fn run() {
             .title("ChatHub Desktop")
             .inner_size(900.0, 600.0)
             .visible(false)
-            // .initialization_script(include_str!("inject-fingerprint.js"))
+            .initialization_script(&initialization_script)
             .user_agent(USER_AGENT)
-            // .on_navigation(|url| {
-            //     let url_str = url.to_string();
-                
-            //     // 允许本地和内部协议
-            //     if url_str.starts_with("tauri://") || url_str.starts_with("http://localhost") {
-            //         return true;
-            //     }
+            .on_navigation(move |url| {
+                if url.scheme() == "chathub" && url.host_str() == Some("url-change") {
+                    if let Some((_, tracked_url)) =
+                        url.query_pairs().find(|(key, _)| key == "value")
+                    {
+                        save_current_model_url(&navigation_app, tracked_url.as_ref());
+                    }
+                    return false;
+                }
 
-            //     // Google 登录必须在外部浏览器中打开
-            //     // Google 自 2023 年 2 月起阻止在嵌入式 WebView 中进行 OAuth 认证
-            //     // if url_str.contains("accounts.google.com") {
-            //     //     let _ = tauri_plugin_opener::open_url(url_str, None::<&str>);
-            //     //     return false;
-            //     // }
+                let url_str = url.to_string();
+                if url_str.starts_with("http://localhost") || url_str.starts_with("tauri://") {
+                    return true;
+                }
 
-            //     // 应保留在应用内的域名白名单
-            //     let whitelist = [
-            //         "chatgpt.com",
-            //         "openai.com",
-            //         "deepseek.com",
-            //         "grok.com",
-            //         "gemini.google.com",
-            //         "googleusercontent.com",
-            //         "gstatic.com",
-            //         "challenges.cloudflare.com", // Cloudflare 验证
-            //         "accounts.youtube.com",      // Google 登录相关
-            //         "accounts.google.com",       // Google Login
-            //     ];
-
-            //     for domain in whitelist {
-            //         if url_str.contains(domain) {
-            //             return true;
-            //         }
-            //     }
-
-            //     // 仅在默认浏览器中打开真正的外部链接
-            //     let _ = tauri_plugin_opener::open_url(url_str, None::<&str>);
-            //     false
-            // })
+                save_current_model_url(&navigation_app, &url_str);
+                true
+            })
             .build()?;
+
+            let app_handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            });
+
+            let settings = load_app_settings(app.handle());
+            let _ = main_window.set_always_on_top(settings.always_on_top);
 
             // 创建初始菜单
             println!("[调试] 开始创建托盘菜单...");
@@ -411,13 +673,17 @@ pub fn run() {
                                 let _ = window.eval("window.location.reload()");
                             }
                         }
+                        "always_on_top" => toggle_always_on_top(app),
                         // 打开浏览器
                         "open_browser" => {
-                            let store = app.store(SETTINGS_FILENAME).unwrap();
-                            let url = store.get("last_url")
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_else(|| CHATGPT_URL.to_string());
+                            let url = load_app_settings(app).current_url();
                             let _ = tauri_plugin_opener::open_url(url, None::<&str>);
+                        }
+                        "check_updates" => {
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                check_for_updates(app_handle).await;
+                            });
                         }
                         // Google OAuth 登录（localhost 回调方案）
                         "google_login" => {
@@ -517,7 +783,7 @@ pub fn run() {
                                                 
                                                 if let Some(verifier) = verifier {
                                                     println!("[OAuth] 使用 verifier 换取 token...");
-                                                    let client = reqwest::Client::new();
+                                                    let client = build_http_client(&app_handle);
                                                     let redirect = redirect_uri.clone();
                                                     
                                                     let params = [
@@ -587,12 +853,7 @@ pub fn run() {
                                                                                                         if !uberauth.is_empty() {
                                                                                                             println!("[OAuth] 获取 uberauth 成功，注入 WebView 会话...");
                                                                                                             // 获取当前页面 URL 用于登录后跳转
-                                                                                                            let continue_url = {
-                                                                                                                let store = app_handle.store(SETTINGS_FILENAME).unwrap();
-                                                                                                                store.get("last_url")
-                                                                                                                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                                                                                                    .unwrap_or_else(|| "https://gemini.google.com".to_string())
-                                                                                                            };
+                                                                                                            let continue_url = load_app_settings(&app_handle).current_url();
                                                                                                             let merge_url = format!(
                                                                                                                 "https://accounts.google.com/MergeSession?uberauth={}&continue={}",
                                                                                                                 urlencoding::encode(&uberauth),
@@ -699,35 +960,36 @@ pub fn run() {
                             } else {
                                 let _ = autostart_manager.enable();
                             }
+                            let mut settings = load_app_settings(app);
+                            settings.auto_launch_on_startup =
+                                autostart_manager.is_enabled().unwrap_or(false);
+                            save_app_settings(app, &settings);
+                            update_tray_menu(app);
                         }
-                        "chatgpt" => switch_model(app, CHATGPT_URL),
-                        "deepseek" => switch_model(app, DEEPSEEK_URL),
-                        "grok" => switch_model(app, GROK_URL),
-                        "gemini" => switch_model(app, GEMINI_URL),
-                        "qwen" => switch_model(app, QWEN_URL),
-                        "doubao" => switch_model(app, DOUBAO_URL),
+                        CHATGPT_MODEL_ID => switch_model(app, CHATGPT_MODEL_ID),
+                        DEEPSEEK_MODEL_ID => switch_model(app, DEEPSEEK_MODEL_ID),
+                        GROK_MODEL_ID => switch_model(app, GROK_MODEL_ID),
+                        GEMINI_MODEL_ID => switch_model(app, GEMINI_MODEL_ID),
+                        QWEN_MODEL_ID => switch_model(app, QWEN_MODEL_ID),
+                        DOUBAO_MODEL_ID => switch_model(app, DOUBAO_MODEL_ID),
                         // 语言切换
                         "lang_zh" => {
-                            let store = app.store(SETTINGS_FILENAME).unwrap();
-                            store.set("language", json!("zh"));
-                            let _ = store.save();
+                            let mut settings = load_app_settings(app);
+                            settings.menu_language = "zh".to_string();
+                            save_app_settings(app, &settings);
                             update_tray_menu(app);
                         }
                         "lang_en" => {
-                            let store = app.store(SETTINGS_FILENAME).unwrap();
-                            store.set("language", json!("en"));
-                            let _ = store.save();
+                            let mut settings = load_app_settings(app);
+                            settings.menu_language = "en".to_string();
+                            save_app_settings(app, &settings);
                             update_tray_menu(app);
                         }
                         // 快捷键设置
                         "shortcut" => {
-                            let store = app.store(SETTINGS_FILENAME).unwrap();
-                            let current_lang = store.get("language")
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_else(|| "zh".to_string());
-                            let current_shortcut = store.get("shortcut")
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+                            let settings = load_app_settings(app);
+                            let current_lang = settings.menu_language;
+                            let current_shortcut = settings.toggle_shortcut;
                             
                             let is_english = current_lang == "en";
                             
@@ -740,14 +1002,22 @@ pub fn run() {
                             let ok_text = if is_english { "Save" } else { "保存" };
                             let cancel_text = if is_english { "Cancel" } else { "取消" };
                             let hint_text = if is_english { "Press keys to set new shortcut" } else { "按下按键组合以设置快捷键" };
+                            let history_text = if is_english { "Recent Shortcuts" } else { "最近使用" };
+                            let empty_history_text = if is_english { "No shortcut history yet" } else { "暂无历史记录" };
+                            let reset_text = if is_english { "Reset Default" } else { "恢复默认" };
+                            let delete_text = if is_english { "Delete" } else { "删除" };
 
                             let query_params = format!(
-                                "?title={title}&hint={hint}&current={current}&cancelText={cancelText}&okText={okText}",
+                                "?title={title}&hint={hint}&current={current}&cancelText={cancelText}&okText={okText}&historyLabel={historyLabel}&emptyHistory={emptyHistory}&resetText={resetText}&deleteText={deleteText}",
                                 title = urlencoding::encode(&title),
                                 hint = urlencoding::encode(&hint_text),
                                 current = urlencoding::encode(&current_shortcut),
                                 cancelText = urlencoding::encode(&cancel_text),
-                                okText = urlencoding::encode(&ok_text)
+                                okText = urlencoding::encode(&ok_text),
+                                historyLabel = urlencoding::encode(&history_text),
+                                emptyHistory = urlencoding::encode(&empty_history_text),
+                                resetText = urlencoding::encode(&reset_text),
+                                deleteText = urlencoding::encode(&delete_text)
                             );
 
                             // 在打开设置前取消注册当前快捷键
@@ -762,7 +1032,7 @@ pub fn run() {
                                 tauri::WebviewUrl::App(format!("shortcut.html{}", query_params).into())
                             )
                             .title(title)
-                            .inner_size(420.0, 200.0)
+                            .inner_size(460.0, 360.0)
                             .resizable(false)
                             .minimizable(false)
                             .always_on_top(true)
@@ -773,10 +1043,7 @@ pub fn run() {
                             let app_handle = app.clone();
                             window.on_window_event(move |event| {
                                 if let tauri::WindowEvent::Destroyed = event {
-                                    let store = app_handle.store(SETTINGS_FILENAME).unwrap();
-                                    let shortcut_str = store.get("shortcut")
-                                        .and_then(|v: serde_json::Value| v.as_str().map(|s| s.to_string()))
-                                        .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+                                    let shortcut_str = load_app_settings(&app_handle).toggle_shortcut;
                                     
                                     if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
                                         log_debug(&format!("重新启用全局快捷键: {}", shortcut_str));
@@ -786,13 +1053,9 @@ pub fn run() {
                             });
                         }
                         "proxy" => {
-                            let store = app.store(SETTINGS_FILENAME).unwrap();
-                            let current_lang = store.get("language")
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_else(|| "zh".to_string());
-                            let current_proxy = store.get("proxy")
-                                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                .unwrap_or_default();
+                            let settings = load_app_settings(app);
+                            let current_lang = settings.menu_language;
+                            let current_proxy = settings.proxy.unwrap_or_default();
                             
                             let is_english = current_lang == "en";
                             
@@ -806,14 +1069,22 @@ pub fn run() {
                             let cancel_text = if is_english { "Cancel" } else { "取消" };
                             let hint_text = if is_english { "Enter proxy address (e.g. socks5://127.0.0.1:7897)" } else { "输入代理地址（如 socks5://127.0.0.1:7897）" };
                             let placeholder_text = if is_english { "Leave empty to disable proxy" } else { "留空则禁用代理" };
+                            let history_text = if is_english { "Recent Proxies" } else { "最近使用" };
+                            let empty_history_text = if is_english { "No proxy history yet" } else { "暂无历史记录" };
+                            let delete_text = if is_english { "Delete" } else { "删除" };
+                            let clear_text = if is_english { "Clear" } else { "清空" };
 
                             let query_params = format!(
-                                "?hint={hint_text}&current={current_proxy}&placeholder={placeholder_text}&cancelText={cancel_text}&okText={ok_text}",
+                                "?hint={hint_text}&current={current_proxy}&placeholder={placeholder_text}&cancelText={cancel_text}&okText={ok_text}&historyLabel={historyLabel}&emptyHistory={emptyHistory}&deleteText={deleteText}&clearText={clearText}",
                                 hint_text = urlencoding::encode(&hint_text),
                                 current_proxy = urlencoding::encode(&current_proxy),
                                 placeholder_text = urlencoding::encode(&placeholder_text),
                                 cancel_text = urlencoding::encode(&cancel_text),
-                                ok_text = urlencoding::encode(&ok_text)
+                                ok_text = urlencoding::encode(&ok_text),
+                                historyLabel = urlencoding::encode(&history_text),
+                                emptyHistory = urlencoding::encode(&empty_history_text),
+                                deleteText = urlencoding::encode(&delete_text),
+                                clearText = urlencoding::encode(&clear_text)
                             );
 
                             let _ = tauri::webview::WebviewWindowBuilder::new(
@@ -822,7 +1093,7 @@ pub fn run() {
                                 tauri::WebviewUrl::App(format!("proxy.html{}", query_params).into())
                             )
                             .title(title)
-                            .inner_size(420.0, 200.0)
+                            .inner_size(460.0, 360.0)
                             .resizable(false)
                             .minimizable(false)
                             .always_on_top(true)
@@ -845,10 +1116,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            let store = app.handle().store(SETTINGS_FILENAME).unwrap();
-            let shortcut_str = store.get("shortcut")
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+            let shortcut_str = load_app_settings(app.handle()).toggle_shortcut;
 
             if !shortcut_str.is_empty() {
                 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};

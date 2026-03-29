@@ -9,46 +9,70 @@
   </div>
 </template>
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen, type Event } from '@tauri-apps/api/event'
 
 const isLoading = ref(true)
 const loadingText = ref('模型加载中...')
+const DEFAULT_MODEL_URL = 'https://chatgpt.com'
+const cleanupFns: Array<() => void | Promise<void>> = []
+
+function redirectTo(url: string) {
+  window.location.href = url
+}
+
+onBeforeUnmount(() => {
+  for (const cleanup of cleanupFns) {
+    void Promise.resolve(cleanup())
+  }
+})
 
 onMounted(async () => {
+  if (!isTauri()) {
+    console.info('[App] Running in browser mode, fallback to default model URL')
+    redirectTo(DEFAULT_MODEL_URL)
+    return
+  }
+
   // Listen for model switch event from Rust
-  await listen('switch-model', (event: Event<string>) => {
-    isLoading.value = true
-    loadingText.value = '模型加载中...'
-    setTimeout(() => {
-      window.location.href = event.payload as string
-    }, 300)
-  })
+  cleanupFns.push(
+    await listen('switch-model', (event: Event<string>) => {
+      isLoading.value = true
+      loadingText.value = '模型加载中...'
+      setTimeout(() => {
+        redirectTo(event.payload as string)
+      }, 300)
+    })
+  )
 
   // 监听登录成功
-  await listen('login_success', (event: Event<Record<string, unknown>>) => {
-    const userInfo = event.payload
-    console.log('[OAuth] 登录成功:', userInfo)
-    // TODO: 更新 UI 状态（如显示用户头像、用户名等）
-  })
+  cleanupFns.push(
+    await listen('login_success', (event: Event<Record<string, unknown>>) => {
+      const userInfo = event.payload
+      console.log('[OAuth] 登录成功:', userInfo)
+      // TODO: 更新 UI 状态（如显示用户头像、用户名等）
+    })
+  )
 
   // 监听登录失败
-  await listen('login_error', (event: Event<string>) => {
-    console.error('[OAuth] 登录失败:', event.payload)
-    // TODO: 显示错误提示给用户
-  })
+  cleanupFns.push(
+    await listen('login_error', (event: Event<string>) => {
+      console.error('[OAuth] 登录失败:', event.payload)
+      // TODO: 显示错误提示给用户
+    })
+  )
 
   try {
-    const url = await invoke('get_last_model_url')
+    const url = await invoke<string>('get_last_model_url')
     if (url && typeof url === 'string') {
-      window.location.href = url
+      redirectTo(url)
     } else {
-      window.location.href = 'https://chatgpt.com'
+      redirectTo(DEFAULT_MODEL_URL)
     }
   } catch (e) {
     console.error('Failed to get last model url', e)
-    window.location.href = 'https://chatgpt.com'
+    redirectTo(DEFAULT_MODEL_URL)
   }
 })
 </script>

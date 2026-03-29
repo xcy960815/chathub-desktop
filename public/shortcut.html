@@ -6,252 +6,359 @@
     <style>
       :root {
         --bg: #ffffff;
-        --text: #1a1a1a;
-        --input-bg: #f2f2f7;
-        --btn-ok: #007aff;
-        --btn-cancel: #f2f2f7;
-        --hint: #8e8e93;
-        --accent: #007aff;
-        --border: rgba(0, 0, 0, 0.05);
+        --panel: #f5f5f7;
+        --panel-strong: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: rgba(15, 23, 42, 0.08);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --danger: #dc2626;
       }
+
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #1c1c1e;
-          --text: #ffffff;
-          --input-bg: #2c2c2e;
-          --btn-ok: #0a84ff;
-          --btn-cancel: #2c2c2e;
-          --hint: #8e8e93;
-          --accent: #0a84ff;
-          --border: rgba(255, 255, 255, 0.1);
+          --bg: #17181c;
+          --panel: #22242a;
+          --panel-strong: #2a2d34;
+          --text: #f3f4f6;
+          --muted: #9ca3af;
+          --border: rgba(255, 255, 255, 0.08);
+          --accent: #5eead4;
+          --accent-soft: rgba(94, 234, 212, 0.12);
+          --danger: #f87171;
         }
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
-        background: var(--bg);
-        color: var(--text);
         margin: 0;
-        padding: 20px;
-        overflow: hidden;
+        padding: 18px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+        background: radial-gradient(circle at top, var(--panel), var(--bg) 58%);
+        color: var(--text);
         user-select: none;
         -webkit-font-smoothing: antialiased;
       }
+
       .container {
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
+        display: grid;
+        gap: 14px;
       }
 
-      .header {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
       .hint {
         font-size: 13px;
-        color: var(--hint);
-        line-height: 1.4;
+        line-height: 1.5;
+        color: var(--muted);
       }
 
       .shortcut-display {
-        width: 100%;
-        padding: 12px 14px;
-        background: var(--input-bg);
-        border: 1px solid var(--border);
-        border-radius: 10px;
+        min-height: 46px;
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--panel-strong);
         font-size: 14px;
-        font-weight: 500;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        cursor: pointer;
-        box-sizing: border-box;
-        color: var(--hint);
-        min-height: 43px;
+        font-weight: 600;
+        color: var(--muted);
+        transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease;
       }
-      .shortcut-display:focus {
-        outline: none;
+
+      .shortcut-display.recording {
         border-color: var(--accent);
-        background: var(--bg);
-        box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
+        box-shadow: 0 0 0 4px var(--accent-soft);
         color: var(--accent);
       }
+
       .shortcut-display.has-value {
         color: var(--text);
       }
-      .shortcut-display.recording {
-        animation: pulse 1.5s infinite;
+
+      .history-block {
+        display: grid;
+        gap: 8px;
       }
-      @keyframes pulse {
-        0% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.6;
-        }
-        100% {
-          opacity: 1;
-        }
+
+      .history-title {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+
+      .history-list {
+        max-height: 150px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel-strong);
+      }
+
+      .history-empty {
+        padding: 16px 12px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .history-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .history-item:last-child {
+        border-bottom: none;
+      }
+
+      .history-value {
+        flex: 1;
+        font-size: 13px;
+        line-height: 1.4;
+        cursor: pointer;
+      }
+
+      .history-value:hover {
+        color: var(--accent);
+      }
+
+      .history-delete {
+        border: none;
+        background: transparent;
+        color: var(--danger);
+        font-size: 12px;
+        cursor: pointer;
       }
 
       .buttons {
         display: flex;
         justify-content: flex-end;
-        gap: 12px;
-        margin-top: 4px;
+        gap: 10px;
       }
+
       button {
-        padding: 10px 24px;
-        border-radius: 10px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
         border: none;
-        transition: all 0.2s;
+        border-radius: 10px;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
       }
+
+      .btn-reset {
+        margin-right: auto;
+        background: var(--panel);
+        color: var(--muted);
+      }
+
       .btn-cancel {
-        background: var(--btn-cancel);
+        background: var(--panel);
         color: var(--text);
       }
-      .btn-cancel:hover {
-        filter: brightness(0.95);
-      }
-      .btn-clear {
-        background: var(--btn-cancel);
-        color: #ff3b30;
-      }
-      .btn-clear:hover {
-        background: #ff3b3015;
-      }
-      .btn-ok {
-        background: var(--btn-ok);
-        color: #fff;
-        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2);
-      }
-      .btn-ok:hover {
-        filter: brightness(1.1);
-        transform: translateY(-1px);
-      }
-      .btn-ok:active {
-        transform: translateY(0);
-      }
-      .btn-ok:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        box-shadow: none;
-        transform: none;
+
+      .btn-save {
+        background: var(--accent);
+        color: #ffffff;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <div id="hint-text" class="hint">按下按键组合以设置快捷键</div>
+      <div id="hint-text" class="hint">按下按键组合以设置快捷键</div>
+      <div id="shortcut-display" class="shortcut-display">请录入...</div>
+
+      <div class="history-block">
+        <div id="history-label" class="history-title">最近使用</div>
+        <div id="history-list" class="history-list"></div>
       </div>
-      <div id="shortcut-box" class="shortcut-display" tabindex="0">请录入...</div>
 
       <div class="buttons">
-        <button class="btn-clear" id="clear-btn">清空</button>
-        <div style="flex: 1"></div>
-        <button class="btn-cancel" id="cancel-btn">取消</button>
-        <button class="btn-ok" id="save-btn" disabled>保存</button>
+        <button id="reset-btn" class="btn-reset">恢复默认</button>
+        <button id="cancel-btn" class="btn-cancel">取消</button>
+        <button id="save-btn" class="btn-save">保存</button>
       </div>
     </div>
 
     <script>
-      const invoke = window.__TAURI__.core.invoke
-      const box = document.getElementById('shortcut-box')
-      const saveBtn = document.getElementById('save-btn')
-      const cancelBtn = document.getElementById('cancel-btn')
-      const clearBtn = document.getElementById('clear-btn')
-      const hintEl = document.getElementById('hint-text')
-
-      let currentShortcut = ''
-      let placeholder = '请录入...'
-
-      const params = new URLSearchParams(window.location.search)
-      hintEl.textContent = params.get('hint') || '按下按键组合以设置快捷键'
-      cancelBtn.textContent = params.get('cancelText') || '取消'
-      saveBtn.textContent = params.get('okText') || '保存'
-      currentShortcut = params.get('current') || ''
-
-      if (currentShortcut) {
-        updateDisplay(currentShortcut)
-        saveBtn.disabled = false
-      } else {
-        box.textContent = placeholder
-      }
-
-      function formatShortcut(str) {
-        return str
-          .replace('CommandOrControl', 'Cmd/Ctrl')
-          .replace('Alt', 'Option/Alt')
-          .replace('Shift', 'Shift')
-          .replace('+', ' + ')
-      }
-
-      function updateDisplay(val) {
-        if (val) {
-          box.textContent = formatShortcut(val)
-          box.classList.add('has-value')
-        } else {
-          box.textContent = placeholder
-          box.classList.remove('has-value')
+      async function getInvoke() {
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          return window.__TAURI__.core.invoke
         }
+
+        return new Promise((resolve) => {
+          let attempts = 0
+          const timer = setInterval(() => {
+            attempts += 1
+            if (window.__TAURI__ && window.__TAURI__.core) {
+              clearInterval(timer)
+              resolve(window.__TAURI__.core.invoke)
+            } else if (attempts > 50) {
+              clearInterval(timer)
+              resolve(null)
+            }
+          }, 100)
+        })
       }
 
-      box.addEventListener('focus', () => {
-        box.classList.add('recording')
-        if (!currentShortcut) {
-          box.textContent = '请录入...'
+      function readText(name, fallback) {
+        return new URLSearchParams(window.location.search).get(name) || fallback
+      }
+
+      function formatShortcut(value) {
+        return value
+          .replaceAll('CommandOrControl', 'Cmd/Ctrl')
+          .replaceAll('Alt', 'Option/Alt')
+          .replaceAll('+', ' + ')
+      }
+
+      function normalizeKey(event) {
+        const modifiers = []
+        if (event.ctrlKey || event.metaKey) modifiers.push('CommandOrControl')
+        if (event.altKey) modifiers.push('Alt')
+        if (event.shiftKey) modifiers.push('Shift')
+
+        const key = event.key
+        const upper = key.toUpperCase()
+        const modifierKeys = ['CONTROL', 'META', 'ALT', 'SHIFT']
+        if (modifierKeys.includes(upper)) {
+          return null
         }
-      })
 
-      box.addEventListener('blur', () => {
-        box.classList.remove('recording')
-        updateDisplay(currentShortcut)
-      })
+        let finalKey = upper
+        if (key === ' ') {
+          finalKey = 'Space'
+        }
 
-      box.addEventListener('keydown', (e) => {
-        e.preventDefault()
+        if (!modifiers.length) {
+          return null
+        }
 
-        const keys = []
-        if (e.ctrlKey || e.metaKey) keys.push('CommandOrControl')
-        if (e.altKey) keys.push('Alt')
-        if (e.shiftKey) keys.push('Shift')
+        return `${modifiers.join('+')}+${finalKey}`
+      }
 
-        const key = e.key.toUpperCase()
-        const isModifier = ['CONTROL', 'META', 'ALT', 'SHIFT'].includes(key)
+      async function init() {
+        const invoke = await getInvoke()
+        if (!invoke) {
+          alert('无法连接到程序核心服务，请稍后重试。')
+          return
+        }
 
-        if (!isModifier) {
-          let finalKey = key
-          if (key === ' ') finalKey = 'Space'
+        const display = document.getElementById('shortcut-display')
+        const hintEl = document.getElementById('hint-text')
+        const historyLabel = document.getElementById('history-label')
+        const historyList = document.getElementById('history-list')
+        const resetBtn = document.getElementById('reset-btn')
+        const cancelBtn = document.getElementById('cancel-btn')
+        const saveBtn = document.getElementById('save-btn')
 
-          if (keys.length > 0) {
-            currentShortcut = keys.join('+') + '+' + finalKey
-            updateDisplay(currentShortcut)
-            saveBtn.disabled = false
-            box.blur()
+        const emptyHistoryText = readText('emptyHistory', '暂无历史记录')
+        const deleteText = readText('deleteText', '删除')
+
+        hintEl.textContent = readText('hint', '按下按键组合以设置快捷键')
+        historyLabel.textContent = readText('historyLabel', '最近使用')
+        resetBtn.textContent = readText('resetText', '恢复默认')
+        cancelBtn.textContent = readText('cancelText', '取消')
+        saveBtn.textContent = readText('okText', '保存')
+
+        const state = await invoke('get_shortcut_dialog_data')
+        let currentShortcut = state.current || readText('current', '')
+        const defaultShortcut = state.default_shortcut || 'CommandOrControl+G'
+        let history = Array.isArray(state.history) ? [...state.history] : []
+
+        const updateDisplay = (value, recording = false) => {
+          display.classList.toggle('recording', recording)
+          display.classList.toggle('has-value', Boolean(value))
+          display.textContent = value ? formatShortcut(value) : '请录入...'
+        }
+
+        const renderHistory = () => {
+          if (!history.length) {
+            historyList.innerHTML = `<div class="history-empty">${emptyHistoryText}</div>`
+            return
+          }
+
+          historyList.innerHTML = history
+            .map(
+              (item) => `
+                <div class="history-item" data-shortcut="${encodeURIComponent(item)}">
+                  <div class="history-value">${formatShortcut(item)}</div>
+                  <button class="history-delete" type="button">${deleteText}</button>
+                </div>
+              `
+            )
+            .join('')
+
+          historyList.querySelectorAll('.history-value').forEach((node) => {
+            node.addEventListener('click', (event) => {
+              const row = event.currentTarget.closest('.history-item')
+              currentShortcut = decodeURIComponent(row.dataset.shortcut || '')
+              updateDisplay(currentShortcut)
+            })
+          })
+
+          historyList.querySelectorAll('.history-delete').forEach((node) => {
+            node.addEventListener('click', async (event) => {
+              const row = event.currentTarget.closest('.history-item')
+              const value = decodeURIComponent(row.dataset.shortcut || '')
+              await invoke('remove_shortcut_history', { shortcut: value })
+              history = history.filter((item) => item !== value)
+              renderHistory()
+            })
+          })
+        }
+
+        cancelBtn.onclick = () => invoke('close_shortcut_window').catch(console.error)
+
+        resetBtn.onclick = () => {
+          currentShortcut = defaultShortcut
+          updateDisplay(currentShortcut)
+        }
+
+        saveBtn.onclick = async () => {
+          try {
+            await invoke('save_shortcut', { shortcut: currentShortcut })
+            await invoke('close_shortcut_window')
+          } catch (error) {
+            alert(`保存失败：${error}`)
           }
         }
-      })
 
-      clearBtn.onclick = () => {
-        currentShortcut = ''
-        updateDisplay('')
-        saveBtn.disabled = false
-        box.blur()
+        window.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            cancelBtn.click()
+            return
+          }
+
+          const nextShortcut = normalizeKey(event)
+          if (!nextShortcut) {
+            if (['Control', 'Meta', 'Alt', 'Shift'].includes(event.key)) {
+              event.preventDefault()
+              updateDisplay(currentShortcut, true)
+            }
+            return
+          }
+
+          event.preventDefault()
+          currentShortcut = nextShortcut
+          updateDisplay(currentShortcut)
+        })
+
+        updateDisplay(currentShortcut)
+        renderHistory()
       }
 
-      cancelBtn.onclick = () => invoke('close_shortcut_window')
-      saveBtn.onclick = async () => {
-        await invoke('save_shortcut', { shortcut: currentShortcut })
-        await invoke('close_shortcut_window')
-      }
-
-      // Focus on load
-      box.focus()
+      init()
     </script>
   </body>
 </html>
