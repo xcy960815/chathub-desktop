@@ -124,8 +124,9 @@ fn build_http_client(app: &AppHandle) -> reqwest::Client {
 
 fn save_current_model_url(app: &AppHandle, url: &str) {
     let mut settings = load_app_settings(app);
-    settings.set_current_url(url.to_string());
-    save_app_settings(app, &settings);
+    if settings.set_current_url(url.to_string()) {
+        save_app_settings(app, &settings);
+    }
 }
 
 fn show_js_alert(app: &AppHandle, message: &str) {

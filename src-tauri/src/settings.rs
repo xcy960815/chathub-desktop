@@ -22,6 +22,17 @@ pub const GEMINI_URL: &str = "https://gemini.google.com/app";
 pub const QWEN_URL: &str = "https://www.qianwen.com/chat";
 pub const DOUBAO_URL: &str = "https://www.doubao.com/chat/";
 
+pub fn default_url_for_model(model: &str) -> &'static str {
+    match normalize_model_id(model) {
+        DEEPSEEK_MODEL_ID => DEEPSEEK_URL,
+        GROK_MODEL_ID => GROK_URL,
+        GEMINI_MODEL_ID => GEMINI_URL,
+        QWEN_MODEL_ID => QWEN_URL,
+        DOUBAO_MODEL_ID => DOUBAO_URL,
+        _ => CHATGPT_URL,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelUrls {
@@ -141,20 +152,55 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn current_url(&self) -> String {
-        self.urls.get(&self.model).to_string()
+        let model = normalize_model_id(&self.model);
+        let stored = self.urls.get(model);
+
+        if is_persistable_model_url(stored) {
+            stored.trim().to_string()
+        } else {
+            default_url_for_model(model).to_string()
+        }
     }
 
     pub fn set_model(&mut self, model: &str) {
         self.model = normalize_model_id(model).to_string();
     }
 
-    pub fn set_current_url(&mut self, url: String) {
+    pub fn set_current_url(&mut self, url: String) -> bool {
+        let Some(url) = trim_non_empty(&url) else {
+            return false;
+        };
+
+        if !is_persistable_model_url(&url) {
+            return false;
+        }
+
         let current_model = self.model.clone();
         self.urls.set(&current_model, url);
+        true
     }
 
     pub fn reset_urls(&mut self) {
         self.urls = ModelUrls::default();
+    }
+
+    fn sanitize(&mut self) -> bool {
+        let mut changed = false;
+        let normalized_model = normalize_model_id(&self.model).to_string();
+
+        if self.model != normalized_model {
+            self.model = normalized_model;
+            changed = true;
+        }
+
+        changed |= repair_model_url(&mut self.urls.chatgpt, CHATGPT_MODEL_ID);
+        changed |= repair_model_url(&mut self.urls.deepseek, DEEPSEEK_MODEL_ID);
+        changed |= repair_model_url(&mut self.urls.grok, GROK_MODEL_ID);
+        changed |= repair_model_url(&mut self.urls.gemini, GEMINI_MODEL_ID);
+        changed |= repair_model_url(&mut self.urls.qwen, QWEN_MODEL_ID);
+        changed |= repair_model_url(&mut self.urls.doubao, DOUBAO_MODEL_ID);
+
+        changed
     }
 }
 
@@ -185,6 +231,69 @@ pub fn infer_model_from_url(url: &str) -> &'static str {
     } else {
         CHATGPT_MODEL_ID
     }
+}
+
+fn is_persistable_model_url(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let Ok(parsed) = url::Url::parse(trimmed) else {
+        return false;
+    };
+
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return false;
+    }
+
+    let host = parsed
+        .host_str()
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let path = parsed.path().to_ascii_lowercase();
+
+    (match parsed.host() {
+        Some(url::Host::Domain(domain)) => {
+            let lowered = domain.to_ascii_lowercase();
+            !matches!(lowered.as_str(), "localhost" | "tauri.localhost")
+                && !lowered.ends_with(".localhost")
+        }
+        Some(url::Host::Ipv4(address)) => !address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => !address.is_loopback(),
+        None => false,
+    }) && !is_transient_provider_url(&host, &path)
+}
+
+fn is_transient_provider_url(host: &str, path: &str) -> bool {
+    if host == "challenges.cloudflare.com" || path.starts_with("/cdn-cgi/challenge-platform") {
+        return true;
+    }
+
+    if host == "gemini.google.com" && path.starts_with("/_/") {
+        return true;
+    }
+
+    if host == "accounts.google.com" || host == "ogs.google.com" {
+        return true;
+    }
+
+    false
+}
+
+fn repair_model_url(value: &mut String, model: &str) -> bool {
+    let normalized = if is_persistable_model_url(value) {
+        value.trim().to_string()
+    } else {
+        default_url_for_model(model).to_string()
+    };
+
+    if *value == normalized {
+        return false;
+    }
+
+    *value = normalized;
+    true
 }
 
 fn trim_non_empty(value: &str) -> Option<String> {
@@ -344,7 +453,10 @@ pub fn load_app_settings(app: &AppHandle) -> AppSettings {
     let store = app.store(SETTINGS_FILENAME).unwrap();
 
     if let Some(value) = store.get(APP_SETTINGS_KEY) {
-        if let Ok(settings) = serde_json::from_value::<AppSettings>(value) {
+        if let Ok(mut settings) = serde_json::from_value::<AppSettings>(value) {
+            if settings.sanitize() {
+                save_app_settings(app, &settings);
+            }
             return settings;
         }
     }
@@ -385,6 +497,7 @@ pub fn load_app_settings(app: &AppHandle) -> AppSettings {
         settings.urls.set(model, last_url);
     }
 
+    settings.sanitize();
     save_app_settings(app, &settings);
     settings
 }
@@ -430,4 +543,61 @@ pub fn normalize_proxy(raw: &str) -> Result<Option<String>, String> {
     }
 
     Ok(Some(candidate))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_url_falls_back_when_internal_url_was_persisted() {
+        let mut settings = AppSettings::default();
+        settings.urls.chatgpt = "http://localhost:1420/".to_string();
+
+        assert_eq!(settings.current_url(), CHATGPT_URL);
+    }
+
+    #[test]
+    fn set_current_url_rejects_internal_app_urls() {
+        let mut settings = AppSettings::default();
+
+        assert!(!settings.set_current_url("tauri://localhost/".to_string()));
+        assert!(!settings.set_current_url("http://localhost:1420/".to_string()));
+        assert_eq!(settings.current_url(), CHATGPT_URL);
+    }
+
+    #[test]
+    fn set_current_url_keeps_external_model_url() {
+        let mut settings = AppSettings::default();
+
+        assert!(settings.set_current_url("https://chatgpt.com/c/abc123".to_string()));
+        assert_eq!(settings.current_url(), "https://chatgpt.com/c/abc123");
+    }
+
+    #[test]
+    fn sanitize_repairs_invalid_urls() {
+        let mut settings = AppSettings::default();
+        settings.model = "CHATGPT_URL".to_string();
+        settings.urls.chatgpt = "  http://localhost:1420/  ".to_string();
+        settings.urls.deepseek = "   ".to_string();
+
+        assert!(settings.sanitize());
+        assert_eq!(settings.model, CHATGPT_MODEL_ID);
+        assert_eq!(settings.urls.chatgpt, CHATGPT_URL);
+        assert_eq!(settings.urls.deepseek, DEEPSEEK_URL);
+    }
+
+    #[test]
+    fn current_url_falls_back_when_transient_provider_url_was_persisted() {
+        let mut settings = AppSettings::default();
+        settings.model = GEMINI_MODEL_ID.to_string();
+        settings.urls.gemini = "https://gemini.google.com/_/bscframe".to_string();
+
+        assert_eq!(settings.current_url(), GEMINI_URL);
+
+        settings.model = CHATGPT_MODEL_ID.to_string();
+        settings.urls.chatgpt = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/turnstile/test".to_string();
+
+        assert_eq!(settings.current_url(), CHATGPT_URL);
+    }
 }
