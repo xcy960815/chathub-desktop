@@ -16,6 +16,7 @@ ChatHub Desktop 是一个聚合了顶级 AI 模型（ChatGPT、DeepSeek、Grok�
 
 - 🚀 **多模型集成**: 一键切换 ChatGPT、DeepSeek、Grok、Gemini、Qwen、Doubao。
 - 🌐 **ChatGPT 系统浏览器外开**: macOS 上 ChatGPT 自动通过系统浏览器打开（内置 WebView 无法通过 Cloudflare 人机验证）。
+- 🔐 **Google 账号登录**: 托盘一键登录，Token 存于系统钥匙串。
 - 💾 **按模型记忆会话**: 每个模型分别保存最近访问 URL，切换回来时自动恢复。
 - 🎨 **极致设计**:
   - 精致的 **macOS 原生风格** 交互体验。

@@ -2,13 +2,13 @@
 
 ## 已完成 ✅
 
-| 功能           | 状态 | 说明                                                    |
-| -------------- | ---- | ------------------------------------------------------- |
-| OAuth 授权流程 | ✅   | PKCE + state 防 CSRF，localhost 随机端口回调            |
-| Token 获取     | ✅   | 成功获取 access_token、refresh_token                    |
-| 用户信息获取   | ✅   | 成功获取 id、email、name、头像等                        |
-| 数据持久化     | ✅   | Token 和用户信息保存到 tauri-plugin-store               |
-| Secrets 安全   | ✅   | Client ID/Secret 通过 `.env` 环境变量注入，不提交到仓库 |
+| 功能           | 状态 | 说明                                                                   |
+| -------------- | ---- | ---------------------------------------------------------------------- |
+| OAuth 授权流程 | ✅   | PKCE + state 防 CSRF，localhost 随机端口回调；托盘菜单可发起登录/退出  |
+| Token 获取     | ✅   | 成功获取 access_token、refresh_token，存于系统钥匙串（macOS 钥匙串等） |
+| 用户信息获取   | ✅   | 成功获取 id、email、name、头像等                                       |
+| 数据持久化     | ✅   | Token 在系统钥匙串（旧版明文数据启动时自动迁移）；用户信息存 settings  |
+| Secrets 安全   | ✅   | Client ID 通过 `.env` 注入；Client Secret 可选，留空走纯 PKCE 流程     |
 
 ## 未解决的核心问题 ❌
 
@@ -29,7 +29,7 @@ GET https://accounts.google.com/OAuthLogin?source=ChromiumBrowser&issueuberauth=
 Authorization: Bearer {access_token}
 ```
 
-**结果**：返回 `403 Forbidden`。Google 已将此 API 限制为 Chrome 浏览器内部使用。
+**结果**：返回 `403 Forbidden`。Google 已将此 API 限制为 Chrome 浏览器内部使用。该代码路径已从应用中移除。
 
 ### 方案 2：WebView 内直接登录 Google ❌
 

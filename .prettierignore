@@ -1,0 +1,12 @@
+# dependencies & build output
+node_modules
+dist
+dist-ssr
+
+# rust
+src-tauri/target
+src-tauri/gen
+
+# lockfiles & logs
+pnpm-lock.yaml
+*.log
