@@ -37,27 +37,52 @@ Authorization: Bearer {access_token}
 
 **结果**：Google 检测到嵌入式 WebView 环境（macOS 上是 WKWebView），显示 **"此浏览器或应用可能不安全"** 错误，拒绝登录。
 
-### 方案 3：UA 伪装 + 指纹注入 ❌
+### 方案 3：UA 伪装 + 指纹注入 ⚠️ 已完善，效果待验证
 
 **原理**：
 
 - 将 WebView 的 User-Agent 伪装为标准 Chrome 浏览器
 - 注入 JavaScript 覆盖 WebView 特有的 API 指纹（如 `navigator` 属性等）
 
-**结果**：Google 的检测机制较为复杂，单纯修改 UA 和部分 JS API 仍被识别为 WebView，登录被拦截。
+**已实现（2026-05）**：
+
+- Rust 层与 JS 层共用同一 UA 常量，避免 HTTP 头与 `navigator.userAgent` 不一致
+- 完整的 Chrome `plugins` / `mimeTypes` 模拟（PDF Plugin、PDF Viewer、Native Client）
+- `window.chrome` 对象（含 `runtime`、`webstore`、`loadTimes`、`csi`）
+- `navigator.userAgentData` Client Hints 模拟
+- `navigator.webdriver = false`
+- WebGL 渲染器/vendor 伪装
+- Canvas 指纹噪声
+- WebRTC 本地 IP 候选过滤
+- Google/OpenAI 页面隐藏 `window.webkit`、`ApplePaySession` 等 WebKit 特征
+- 调试快照：`window.__CHATHUB_STEALTH_SNAPSHOT__()`
+
+**注意**：Google OAuth 仍可能因 `disallowed_useragent` 策略拦截嵌入式 WebView；此方案主要改善 Gemini 等页面内的 Google 账号登录体验，不保证 100% 绕过。
+
+> **2026-09 更新**：实测在 macOS 上注入伪装脚本会破坏 Cloudflare Turnstile 人机验证（chatgpt.com 加载挑战页时被干扰），已在 macOS 上**完全禁用** stealth 注入（`build_initialization_script` 仅保留 `navigation_bridge.js`，UA 也不再伪装），伪装脚本仅在非 macOS 平台启用。
+
+### ChatGPT 的 Cloudflare 人机验证无法通过 ✅ 已解决（系统浏览器外开）
+
+**现象**：macOS WKWebView 打开 chatgpt.com 时被 Cloudflare Turnstile 拦截，无法进入对话页面。
+
+**方案**：macOS 上切换到 ChatGPT 时不再用内置 WebView 加载，改为调用系统浏览器打开，主窗口导航回应用外壳并显示"已在系统浏览器中打开"的提示卡片（支持"再次打开"）。相关逻辑：
+
+- Rust：`get_model_launch_plan` 统一返回启动计划并负责打开浏览器；`switch_model` 只负责把 WebView 导航回外壳页面，避免重复打开
+- 前端：`App.vue` 的 `launchModel` 根据计划决定跳转 URL 还是展示外开提示
+- 持久化：`chatgpt.com/auth/...` 等错误页 URL 视为瞬态地址，自动回退到默认 URL
 
 ## 可能的后续方案
 
-### 方案 A：更激进的 WebView 指纹伪装
+### 方案 A：更激进的 WebView 指纹伪装 ✅ 已实现（仅非 macOS 平台启用）
 
-深入研究 Google 的 WebView 检测机制，尝试更全面的环境伪装：
+已在 `src-tauri/src/stealth_bridge.js` 中实现，包括：
 
 - 覆盖 `navigator.plugins`、`navigator.mimeTypes` 等
-- 模拟 Chrome 扩展 API
+- 模拟 Chrome 扩展 API（`window.chrome.runtime` 等）
 - 伪装 `window.chrome` 对象
-- 拦截 WebRTC、Canvas fingerprint 等高级检测手段
+- Canvas fingerprint 噪声、WebRTC 本地 IP 过滤
 
-> **风险**：工作量大且不稳定，Google 可能随时更新检测策略。
+> **风险**：Google 可能随时更新检测策略，需实际测试验证。
 
 ### 方案 B：Cookie 共享（macOS 限定）
 
@@ -83,4 +108,4 @@ Electron 基于 Chromium，Google 对 Chromium 内核更友好：
 
 ---
 
-_最后更新：2026-02-20_
+_最后更新：2026-09-27_

@@ -278,6 +278,16 @@ fn is_transient_provider_url(host: &str, path: &str) -> bool {
         return true;
     }
 
+    if host == "chatgpt.com"
+        || host.ends_with(".chatgpt.com")
+        || host == "openai.com"
+        || host.ends_with(".openai.com")
+    {
+        if path.starts_with("/auth") {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -598,6 +608,26 @@ mod tests {
         settings.model = CHATGPT_MODEL_ID.to_string();
         settings.urls.chatgpt = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/turnstile/test".to_string();
 
+        assert_eq!(settings.current_url(), CHATGPT_URL);
+    }
+
+    #[test]
+    fn current_url_falls_back_when_chatgpt_auth_error_was_persisted() {
+        let mut settings = AppSettings::default();
+        settings.urls.chatgpt = "https://chatgpt.com/auth/error?error=undefined".to_string();
+
+        assert_eq!(settings.current_url(), CHATGPT_URL);
+        assert!(settings.sanitize());
+        assert_eq!(settings.urls.chatgpt, CHATGPT_URL);
+    }
+
+    #[test]
+    fn set_current_url_rejects_chatgpt_auth_routes() {
+        let mut settings = AppSettings::default();
+
+        assert!(!settings.set_current_url(
+            "https://chatgpt.com/auth/error?error=undefined".to_string()
+        ));
         assert_eq!(settings.current_url(), CHATGPT_URL);
     }
 }

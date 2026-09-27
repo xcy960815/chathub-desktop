@@ -6,18 +6,42 @@
   window.__CHATHUB_STEALTH__ = true
 
   const USER_AGENT =
+    window.__CHATHUB_USER_AGENT__ ||
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+  const CHROME_MAJOR = (() => {
+    const match = USER_AGENT.match(/Chrome\/(\d+)/)
+    return match ? match[1] : '131'
+  })()
 
   const BRANDS = [
     { brand: 'Not_A Brand', version: '24' },
-    { brand: 'Chromium', version: '131' },
-    { brand: 'Google Chrome', version: '131' }
+    { brand: 'Chromium', version: CHROME_MAJOR },
+    { brand: 'Google Chrome', version: CHROME_MAJOR }
   ]
 
   const GOOGLE_HOST_PATTERN = /(^|\.)google\.com$/
   const OPENAI_HOST_PATTERN = /(^|\.)chatgpt\.com$|(^|\.)openai\.com$/
+  const CLOUDFLARE_HOST_PATTERN = /(^|\.)cloudflare\.com$/
+
+  const shouldSkipStealth = () => {
+    const hostname = String(location.hostname || '')
+    return OPENAI_HOST_PATTERN.test(hostname) || CLOUDFLARE_HOST_PATTERN.test(hostname)
+  }
 
   const runStealthPatches = () => {
+    if (window.__CHATHUB_STEALTH_PATCHED__) {
+      return
+    }
+
+    if (shouldSkipStealth()) {
+      window.__CHATHUB_STEALTH_PATCHED__ = true
+      window.__CHATHUB_STEALTH_SKIPPED__ = 'turnstile-safe'
+      return
+    }
+
+    window.__CHATHUB_STEALTH_PATCHED__ = true
+
     const hostname = String(location.hostname || '')
     const isGoogleSurface = GOOGLE_HOST_PATTERN.test(hostname)
     const isOpenAISurface = OPENAI_HOST_PATTERN.test(hostname)
@@ -61,6 +85,181 @@
       return fn
     }
 
+    const navigatorProto = (() => {
+      try {
+        return Object.getPrototypeOf(navigator)
+      } catch (_) {
+        return null
+      }
+    })()
+
+    const patchTarget = (key, getter) => {
+      if (navigatorProto) {
+        defineGetter(navigatorProto, key, getter)
+      }
+      defineGetter(navigator, key, getter)
+    }
+
+    const createMimeType = (type, suffixes, description, plugin) => ({
+      type,
+      suffixes,
+      description,
+      enabledPlugin: plugin
+    })
+
+    const createPlugin = (name, filename, description, mimeTypes) => {
+      const plugin = {
+        name,
+        filename,
+        description,
+        length: mimeTypes.length,
+        item: markNative((index) => mimeTypes[index] || null, 'item'),
+        namedItem: markNative((mimeType) => {
+          for (let index = 0; index < mimeTypes.length; index += 1) {
+            if (mimeTypes[index] && mimeTypes[index].type === mimeType) {
+              return mimeTypes[index]
+            }
+          }
+          return null
+        }, 'namedItem')
+      }
+
+      mimeTypes.forEach((mimeType, index) => {
+        plugin[index] = mimeType
+        mimeType.enabledPlugin = plugin
+      })
+
+      return plugin
+    }
+
+    const buildChromePlugins = () => {
+      const pdfPlugin = createPlugin(
+        'Chrome PDF Plugin',
+        'internal-pdf-viewer',
+        'Portable Document Format',
+        [createMimeType('application/x-google-chrome-pdf', 'pdf', 'Portable Document Format', null)]
+      )
+
+      const pdfViewer = createPlugin('Chrome PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai', '', [
+        createMimeType('application/pdf', 'pdf', '', null)
+      ])
+
+      const nativeClient = createPlugin('Native Client', 'internal-nacl-plugin', '', [
+        createMimeType('application/x-nacl', '', 'Native Client Executable', null),
+        createMimeType('application/x-pnacl', '', 'Portable Native Client Executable', null)
+      ])
+
+      const plugins = [pdfPlugin, pdfViewer, nativeClient]
+      const pluginArray = {
+        length: plugins.length,
+        item: markNative((index) => plugins[index] || null, 'item'),
+        namedItem: markNative((name) => {
+          for (let index = 0; index < plugins.length; index += 1) {
+            if (plugins[index] && plugins[index].name === name) {
+              return plugins[index]
+            }
+          }
+          return null
+        }, 'namedItem'),
+        refresh: markNative(() => {}, 'refresh'),
+        [Symbol.iterator]: markNative(function* () {
+          for (let index = 0; index < plugins.length; index += 1) {
+            yield plugins[index]
+          }
+        }, 'values')
+      }
+
+      plugins.forEach((plugin, index) => {
+        pluginArray[index] = plugin
+      })
+
+      const mimeTypeList = []
+      plugins.forEach((plugin) => {
+        for (let index = 0; index < plugin.length; index += 1) {
+          mimeTypeList.push(plugin[index])
+        }
+      })
+
+      const mimeTypes = {
+        length: mimeTypeList.length,
+        item: markNative((index) => mimeTypeList[index] || null, 'item'),
+        namedItem: markNative((type) => {
+          for (let index = 0; index < mimeTypeList.length; index += 1) {
+            if (mimeTypeList[index] && mimeTypeList[index].type === type) {
+              return mimeTypeList[index]
+            }
+          }
+          return null
+        }, 'namedItem'),
+        [Symbol.iterator]: markNative(function* () {
+          for (let index = 0; index < mimeTypeList.length; index += 1) {
+            yield mimeTypeList[index]
+          }
+        }, 'values')
+      }
+
+      mimeTypeList.forEach((mimeType, index) => {
+        mimeTypes[index] = mimeType
+      })
+
+      return { pluginArray, mimeTypes }
+    }
+
+    const buildChromeObject = () => ({
+      app: {
+        isInstalled: false,
+        InstallState: {
+          DISABLED: 'disabled',
+          INSTALLED: 'installed',
+          NOT_INSTALLED: 'not_installed'
+        },
+        RunningState: {
+          CANNOT_RUN: 'cannot_run',
+          READY_TO_RUN: 'ready_to_run',
+          RUNNING: 'running'
+        }
+      },
+      csi: markNative(() => ({}), 'csi'),
+      loadTimes: markNative(
+        () => ({
+          commitLoadTime: Date.now() / 1000,
+          connectionInfo: 'http/1.1',
+          finishDocumentLoadTime: Date.now() / 1000,
+          finishLoadTime: Date.now() / 1000,
+          firstPaintAfterLoadTime: 0,
+          firstPaintTime: Date.now() / 1000,
+          navigationType: 'Other',
+          npnNegotiatedProtocol: 'unknown',
+          requestTime: Date.now() / 1000 - 0.16,
+          startLoadTime: Date.now() / 1000 - 0.2,
+          wasAlternateProtocolAvailable: false,
+          wasFetchedViaSpdy: false,
+          wasNpnNegotiated: false
+        }),
+        'loadTimes'
+      ),
+      runtime: {
+        connect: markNative(
+          () => ({ onDisconnect: { addListener: markNative(() => {}, 'addListener') } }),
+          'connect'
+        ),
+        id: undefined,
+        sendMessage: markNative(() => {}, 'sendMessage'),
+        getURL: markNative((path = '') => `chrome-extension://${path}`, 'getURL'),
+        onMessage: {
+          addListener: markNative(() => {}, 'addListener'),
+          removeListener: markNative(() => {}, 'removeListener')
+        },
+        onInstalled: {
+          addListener: markNative(() => {}, 'addListener')
+        }
+      },
+      webstore: {
+        onInstallStageChanged: {},
+        onDownloadProgress: {}
+      }
+    })
+
     const patchWebGL = (Ctor) => {
       try {
         if (!Ctor || !Ctor.prototype || !Ctor.prototype.getParameter) {
@@ -77,6 +276,90 @@
           }
           return originalGetParameter.call(this, parameter)
         }, 'getParameter')
+      } catch (_) {}
+    }
+
+    const patchCanvas = () => {
+      try {
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL
+        const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData
+
+        HTMLCanvasElement.prototype.toDataURL = markNative(function (...args) {
+          try {
+            const context = this.getContext('2d')
+            if (context) {
+              const { width, height } = this
+              if (width && height) {
+                const imageData = context.getImageData(0, 0, width, height)
+                imageData.data[0] = imageData.data[0] ^ 1
+                context.putImageData(imageData, 0, 0)
+              }
+            }
+          } catch (_) {}
+          return originalToDataURL.apply(this, args)
+        }, 'toDataURL')
+
+        CanvasRenderingContext2D.prototype.getImageData = markNative(function (...args) {
+          const imageData = originalGetImageData.apply(this, args)
+          try {
+            if (imageData && imageData.data && imageData.data.length > 0) {
+              imageData.data[0] = imageData.data[0] ^ 1
+            }
+          } catch (_) {}
+          return imageData
+        }, 'getImageData')
+      } catch (_) {}
+    }
+
+    const patchWebRTC = () => {
+      try {
+        const OriginalRTCPeerConnection = window.RTCPeerConnection
+        if (!OriginalRTCPeerConnection) {
+          return
+        }
+
+        const sanitizeSdp = (sdp) => {
+          if (typeof sdp !== 'string') {
+            return sdp
+          }
+
+          return sdp
+            .split('\n')
+            .filter((line) => {
+              if (line.startsWith('a=candidate:') && line.includes(' typ host ')) {
+                return false
+              }
+              return true
+            })
+            .join('\n')
+        }
+
+        const wrapPeerConnection = markNative(function (...args) {
+          const pc = new OriginalRTCPeerConnection(...args)
+          const originalCreateOffer = pc.createOffer.bind(pc)
+          const originalCreateAnswer = pc.createAnswer.bind(pc)
+
+          pc.createOffer = markNative(async (...offerArgs) => {
+            const offer = await originalCreateOffer(...offerArgs)
+            return {
+              ...offer,
+              sdp: sanitizeSdp(offer.sdp)
+            }
+          }, 'createOffer')
+
+          pc.createAnswer = markNative(async (...answerArgs) => {
+            const answer = await originalCreateAnswer(...answerArgs)
+            return {
+              ...answer,
+              sdp: sanitizeSdp(answer.sdp)
+            }
+          }, 'createAnswer')
+
+          return pc
+        }, 'RTCPeerConnection')
+
+        wrapPeerConnection.prototype = OriginalRTCPeerConnection.prototype
+        defineValue(window, 'RTCPeerConnection', wrapPeerConnection)
       } catch (_) {}
     }
 
@@ -126,63 +409,26 @@
       } catch (_) {}
     }
 
-    const patchGoogleSurface = () => {
+    const patchPermissions = () => {
       try {
-        defineGetter(navigatorProto || navigator, 'languages', () => ['en-US', 'en', 'zh-CN', 'zh'])
-        defineGetter(navigator, 'languages', () => ['en-US', 'en', 'zh-CN', 'zh'])
-      } catch (_) {}
-
-      try {
-        defineGetter(navigatorProto || navigator, 'cookieEnabled', () => true)
-        defineGetter(navigator, 'cookieEnabled', () => true)
-      } catch (_) {}
-
-      try {
-        defineGetter(navigatorProto || navigator, 'onLine', () => true)
-        defineGetter(navigator, 'onLine', () => true)
-      } catch (_) {}
-
-      try {
-        defineGetter(navigatorProto || navigator, 'doNotTrack', () => null)
-        defineGetter(navigator, 'doNotTrack', () => null)
-      } catch (_) {}
-
-      try {
-        const chromeObject = window.chrome || {}
-        if (!chromeObject.webstore) {
-          chromeObject.webstore = {
-            onInstallStageChanged: {},
-            onDownloadProgress: {}
-          }
+        if (!navigator.permissions || typeof navigator.permissions.query !== 'function') {
+          return
         }
-        if (!chromeObject.runtime) {
-          chromeObject.runtime = {}
-        }
-        if (!('id' in chromeObject.runtime)) {
-          chromeObject.runtime.id = undefined
-        }
-        if (!chromeObject.runtime.getURL) {
-          chromeObject.runtime.getURL = markNative(
-            (path = '') => `chrome-extension://${path}`,
-            'getURL'
-          )
-        }
-        defineGetter(window, 'chrome', () => chromeObject)
-      } catch (_) {}
 
-      try {
-        if (navigator.permissions && typeof navigator.permissions.query === 'function') {
-          const originalQuery = navigator.permissions.query.bind(navigator.permissions)
-          const patchedQuery = markNative((parameters) => {
-            const allowedNames = new Set([
-              'notifications',
-              'camera',
-              'microphone',
-              'geolocation',
-              'clipboard-read',
-              'clipboard-write'
-            ])
+        const originalQuery = navigator.permissions.query.bind(navigator.permissions)
+        const allowedNames = new Set([
+          'notifications',
+          'camera',
+          'microphone',
+          'geolocation',
+          'clipboard-read',
+          'clipboard-write'
+        ])
 
+        defineValue(
+          navigator.permissions,
+          'query',
+          markNative((parameters) => {
             if (parameters && allowedNames.has(parameters.name)) {
               return Promise.resolve({
                 state: parameters.name === 'notifications' ? Notification.permission : 'prompt',
@@ -192,23 +438,21 @@
 
             return originalQuery(parameters)
           }, 'query')
+        )
+      } catch (_) {}
+    }
 
-          defineValue(navigator.permissions, 'query', patchedQuery)
+    const hideWebKitIndicators = () => {
+      try {
+        if ('webkit' in window) {
+          defineGetter(window, 'webkit', () => undefined)
         }
       } catch (_) {}
 
-      patchMediaDevices()
-    }
-
-    const patchOpenAISurface = () => {
       try {
-        defineGetter(navigatorProto || navigator, 'languages', () => ['en-US', 'en', 'zh-CN', 'zh'])
-        defineGetter(navigator, 'languages', () => ['en-US', 'en', 'zh-CN', 'zh'])
-      } catch (_) {}
-
-      try {
-        defineGetter(navigatorProto || navigator, 'cookieEnabled', () => true)
-        defineGetter(navigator, 'cookieEnabled', () => true)
+        if ('ApplePaySession' in window) {
+          defineGetter(window, 'ApplePaySession', () => undefined)
+        }
       } catch (_) {}
     }
 
@@ -220,91 +464,24 @@
       }
     } catch (_) {}
 
-    const navigatorProto = (() => {
-      try {
-        return Object.getPrototypeOf(navigator)
-      } catch (_) {
-        return null
-      }
-    })()
-
-    if (navigatorProto) {
-      defineGetter(navigatorProto, 'webdriver', () => undefined)
-      defineGetter(navigatorProto, 'userAgent', () => USER_AGENT)
-      defineGetter(navigatorProto, 'appVersion', () => USER_AGENT.replace(/^Mozilla\//, ''))
-      defineGetter(navigatorProto, 'platform', () => 'MacIntel')
-      defineGetter(navigatorProto, 'vendor', () => 'Google Inc.')
-      defineGetter(navigatorProto, 'languages', () => ['zh-CN', 'zh', 'en'])
-      defineGetter(navigatorProto, 'maxTouchPoints', () => 0)
-      defineGetter(navigatorProto, 'hardwareConcurrency', () => 8)
-      defineGetter(navigatorProto, 'deviceMemory', () => 8)
-      defineGetter(navigatorProto, 'pdfViewerEnabled', () => true)
-      defineGetter(navigatorProto, 'productSub', () => '20030107')
-      defineGetter(navigatorProto, 'vendorSub', () => '')
-    }
-
-    defineGetter(navigator, 'webdriver', () => undefined)
-    defineGetter(navigator, 'userAgent', () => USER_AGENT)
-    defineGetter(navigator, 'appVersion', () => USER_AGENT.replace(/^Mozilla\//, ''))
-    defineGetter(navigator, 'platform', () => 'MacIntel')
-    defineGetter(navigator, 'vendor', () => 'Google Inc.')
-    defineGetter(navigator, 'languages', () => ['zh-CN', 'zh', 'en'])
-    defineGetter(navigator, 'maxTouchPoints', () => 0)
-    defineGetter(navigator, 'hardwareConcurrency', () => 8)
-    defineGetter(navigator, 'deviceMemory', () => 8)
-    defineGetter(navigator, 'pdfViewerEnabled', () => true)
+    patchTarget('webdriver', () => false)
+    patchTarget('userAgent', () => USER_AGENT)
+    patchTarget('appVersion', () => USER_AGENT.replace(/^Mozilla\//, ''))
+    patchTarget('platform', () => 'MacIntel')
+    patchTarget('vendor', () => 'Google Inc.')
+    patchTarget('language', () => 'zh-CN')
+    patchTarget('languages', () => ['zh-CN', 'zh', 'en'])
+    patchTarget('maxTouchPoints', () => 0)
+    patchTarget('hardwareConcurrency', () => 8)
+    patchTarget('deviceMemory', () => 8)
+    patchTarget('pdfViewerEnabled', () => true)
+    patchTarget('productSub', () => '20030107')
+    patchTarget('vendorSub', () => '')
 
     try {
-      const pluginTemplate = {
-        0: {
-          type: 'application/x-google-chrome-pdf',
-          suffixes: 'pdf',
-          description: 'Portable Document Format',
-          enabledPlugin: null
-        },
-        description: 'Portable Document Format',
-        filename: 'internal-pdf-viewer',
-        length: 1,
-        name: 'Chrome PDF Plugin'
-      }
-      pluginTemplate[0].enabledPlugin = pluginTemplate
-
-      const pluginArray = {
-        0: pluginTemplate,
-        1: pluginTemplate,
-        2: pluginTemplate,
-        length: 3,
-        item: markNative((index) => pluginArray[index] || null, 'item'),
-        namedItem: markNative((name) => {
-          for (let index = 0; index < pluginArray.length; index += 1) {
-            if (pluginArray[index] && pluginArray[index].name === name) {
-              return pluginArray[index]
-            }
-          }
-          return null
-        }, 'namedItem'),
-        refresh: markNative(() => {}, 'refresh'),
-        [Symbol.iterator]: markNative(function* () {
-          for (let index = 0; index < pluginArray.length; index += 1) {
-            yield pluginArray[index]
-          }
-        }, 'values')
-      }
-
-      const mimeTypes = {
-        0: pluginTemplate[0],
-        length: 1,
-        item: markNative(() => pluginTemplate[0], 'item'),
-        namedItem: markNative(() => pluginTemplate[0], 'namedItem'),
-        [Symbol.iterator]: markNative(function* () {
-          yield pluginTemplate[0]
-        }, 'values')
-      }
-
-      defineGetter(navigatorProto || navigator, 'plugins', () => pluginArray)
-      defineGetter(navigator, 'plugins', () => pluginArray)
-      defineGetter(navigatorProto || navigator, 'mimeTypes', () => mimeTypes)
-      defineGetter(navigator, 'mimeTypes', () => mimeTypes)
+      const { pluginArray, mimeTypes } = buildChromePlugins()
+      patchTarget('plugins', () => pluginArray)
+      patchTarget('mimeTypes', () => mimeTypes)
     } catch (_) {}
 
     try {
@@ -321,7 +498,7 @@
             bitness: '64',
             model: '',
             platformVersion: '14.0.0',
-            uaFullVersion: '131.0.0.0',
+            uaFullVersion: `${CHROME_MAJOR}.0.0.0`,
             fullVersionList: BRANDS
           }),
           'getHighEntropyValues'
@@ -336,8 +513,7 @@
         )
       }
 
-      defineGetter(navigatorProto || navigator, 'userAgentData', () => uaData)
-      defineGetter(navigator, 'userAgentData', () => uaData)
+      patchTarget('userAgentData', () => uaData)
     } catch (_) {}
 
     try {
@@ -349,68 +525,18 @@
         saveData: false,
         type: 'wifi'
       }
-      defineGetter(navigatorProto || navigator, 'connection', () => connection)
-      defineGetter(navigator, 'connection', () => connection)
+      patchTarget('connection', () => connection)
     } catch (_) {}
 
     try {
-      const chromeMock = {
-        runtime: {
-          connect: markNative(() => {}, 'connect'),
-          sendMessage: markNative(() => {}, 'sendMessage'),
-          onMessage: {
-            addListener: markNative(() => {}, 'addListener'),
-            removeListener: markNative(() => {}, 'removeListener')
-          },
-          onInstalled: {
-            addListener: markNative(() => {}, 'addListener')
-          }
-        },
-        loadTimes: markNative(() => ({}), 'loadTimes'),
-        csi: markNative(() => ({}), 'csi'),
-        app: {
-          isInstalled: false,
-          InstallState: {
-            DISABLED: 'disabled',
-            INSTALLED: 'installed',
-            NOT_INSTALLED: 'not_installed'
-          },
-          RunningState: {
-            CANNOT_RUN: 'cannot_run',
-            READY_TO_RUN: 'ready_to_run',
-            RUNNING: 'running'
-          }
-        }
-      }
-
-      defineGetter(window, 'chrome', () => chromeMock)
+      defineGetter(window, 'chrome', () => buildChromeObject())
     } catch (_) {}
 
-    try {
-      if (navigator.permissions && typeof navigator.permissions.query === 'function') {
-        const originalQuery = navigator.permissions.query.bind(navigator.permissions)
-        const patchedQuery = markNative((parameters) => {
-          if (parameters && parameters.name === 'notifications') {
-            return Promise.resolve({
-              state: Notification.permission,
-              onchange: null
-            })
-          }
-
-          return originalQuery(parameters)
-        }, 'query')
-
-        defineValue(navigator.permissions, 'query', patchedQuery)
-      }
-    } catch (_) {}
+    patchPermissions()
 
     try {
-      defineGetter(window, 'outerWidth', () =>
-        Math.max(window.innerWidth, screen.availWidth || 1440)
-      )
-      defineGetter(window, 'outerHeight', () =>
-        Math.max(window.innerHeight, (screen.availHeight || 900) - 24)
-      )
+      defineGetter(window, 'outerWidth', () => window.innerWidth)
+      defineGetter(window, 'outerHeight', () => window.innerHeight + 28)
     } catch (_) {}
 
     try {
@@ -419,15 +545,17 @@
     } catch (_) {}
 
     if (isGoogleSurface) {
-      patchGoogleSurface()
-    }
-
-    if (isOpenAISurface) {
-      patchOpenAISurface()
+      patchTarget('cookieEnabled', () => true)
+      patchTarget('onLine', () => true)
+      patchTarget('doNotTrack', () => null)
+      patchMediaDevices()
+      hideWebKitIndicators()
     }
 
     patchWebGL(window.WebGLRenderingContext)
     patchWebGL(window.WebGL2RenderingContext)
+    patchCanvas()
+    patchWebRTC()
 
     try {
       defineValue(
@@ -450,6 +578,7 @@
             pluginsLength: navigator.plugins ? navigator.plugins.length : 0,
             mimeTypesLength: navigator.mimeTypes ? navigator.mimeTypes.length : 0,
             hasChrome: !!window.chrome,
+            hasWebkit: 'webkit' in window,
             hasUserAgentData: !!navigator.userAgentData,
             userAgentData: navigator.userAgentData
               ? {
@@ -465,10 +594,10 @@
     } catch (_) {}
   }
 
-  const inject = () => {
+  const injectIntoPageContext = () => {
     const mountPoint = document.head || document.documentElement
     if (!mountPoint) {
-      setTimeout(inject, 10)
+      setTimeout(injectIntoPageContext, 0)
       return
     }
 
@@ -480,5 +609,6 @@
     } catch (_) {}
   }
 
-  inject()
+  runStealthPatches()
+  injectIntoPageContext()
 })()
