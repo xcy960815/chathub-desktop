@@ -9,13 +9,6 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
-  "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["chathub"]
-      }
-    }
-  },
   "app": {
     "withGlobalTauri": false,
     "windows": [],

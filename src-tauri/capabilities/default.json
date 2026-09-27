@@ -10,7 +10,6 @@
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-unregister",
     "positioner:default",
-    "dialog:default",
     "opener:default"
   ]
 }

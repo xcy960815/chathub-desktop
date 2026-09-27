@@ -180,10 +180,6 @@ impl AppSettings {
         true
     }
 
-    pub fn reset_urls(&mut self) {
-        self.urls = ModelUrls::default();
-    }
-
     fn sanitize(&mut self) -> bool {
         let mut changed = false;
         let normalized_model = normalize_model_id(&self.model).to_string();
@@ -606,7 +602,9 @@ mod tests {
         assert_eq!(settings.current_url(), GEMINI_URL);
 
         settings.model = CHATGPT_MODEL_ID.to_string();
-        settings.urls.chatgpt = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/turnstile/test".to_string();
+        settings.urls.chatgpt =
+            "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/turnstile/test"
+                .to_string();
 
         assert_eq!(settings.current_url(), CHATGPT_URL);
     }
@@ -625,9 +623,9 @@ mod tests {
     fn set_current_url_rejects_chatgpt_auth_routes() {
         let mut settings = AppSettings::default();
 
-        assert!(!settings.set_current_url(
-            "https://chatgpt.com/auth/error?error=undefined".to_string()
-        ));
+        assert!(
+            !settings.set_current_url("https://chatgpt.com/auth/error?error=undefined".to_string())
+        );
         assert_eq!(settings.current_url(), CHATGPT_URL);
     }
 }
