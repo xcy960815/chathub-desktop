@@ -1,8 +1,24 @@
+/**
+ * 代理设置弹窗入口。
+ *
+ * 读写走 Rust 命令：`get_proxy_dialog_data` / `save_proxy` /
+ * `remove_proxy_history` / `close_proxy_window`。
+ * 文案由 Rust 侧通过 URL 查询参数传入，随托盘语言设置切换。
+ */
 import './dialog.css'
 import './proxy.css'
 import { invoke } from '@tauri-apps/api/core'
 import { mountHistoryList, readText, requireElement } from './common'
 
+/**
+ * 校验用户输入的代理地址
+ *
+ * 允许留空（表示禁用代理）；未写协议时按 `http://` 处理，
+ * 必须能解析出主机名和端口才视为合法。
+ *
+ * @param value - 用户输入（已去除首尾空白）
+ * @returns 是否通过校验
+ */
 function validateProxy(value: string): boolean {
   if (!value) {
     return true
@@ -18,6 +34,12 @@ function validateProxy(value: string): boolean {
   }
 }
 
+/**
+ * 弹窗初始化：回填本地化文案与当前代理、渲染历史列表，
+ * 并绑定保存/取消/清空按钮与 Enter/Escape 键盘事件
+ *
+ * @throws invoke 不可用或调用失败时 reject，由底部的统一 catch 弹窗提示
+ */
 async function init(): Promise<void> {
   const input = requireElement<HTMLInputElement>('proxy-input')
   const hintEl = requireElement('hint-text')

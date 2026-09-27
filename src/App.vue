@@ -23,10 +23,15 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen, type Event } from '@tauri-apps/api/event'
 
+/** Rust 命令 `get_model_launch_plan` 返回的模型启动计划 */
 interface ModelLaunchPlan {
+  /** 模型目标地址 */
   url: string
+  /** 为 true 时模型已在系统浏览器打开，外壳展示提示卡片而非跳转 */
   openInSystemBrowser: boolean
+  /** 提示卡片标题，随托盘语言设置返回 */
   title?: string | null
+  /** 提示卡片正文，随托盘语言设置返回 */
   notice?: string | null
 }
 
@@ -36,12 +41,21 @@ const externalTitle = ref('已在系统浏览器中打开')
 const externalNotice = ref<string | null>(null)
 const externalUrl = ref('')
 const DEFAULT_MODEL_URL = 'https://chatgpt.com'
+/** onMounted 中注册的事件监听清理函数，卸载时统一执行 */
 const cleanupFns: Array<() => void | Promise<void>> = []
 
+/**
+ * 让主窗口导航到目标地址
+ *
+ * 外壳页随之被替换，Vue 实例销毁；回到外壳时会重新走 launchModel。
+ */
 function redirectTo(url: string) {
   window.location.href = url
 }
 
+/**
+ * 展示"已在系统浏览器中打开"提示卡片
+ */
 function showExternalNotice(plan: ModelLaunchPlan) {
   externalTitle.value = plan.title || '已在系统浏览器中打开'
   externalNotice.value = plan.notice || '已在系统浏览器中打开。'
@@ -49,6 +63,9 @@ function showExternalNotice(plan: ModelLaunchPlan) {
   isLoading.value = false
 }
 
+/**
+ * 提示卡片上的"再次在浏览器中打开"：把当前模型地址重新交给系统浏览器
+ */
 async function reopenInBrowser() {
   if (!externalUrl.value) {
     return
@@ -57,6 +74,12 @@ async function reopenInBrowser() {
   await invoke('open_model_in_browser', { url: externalUrl.value })
 }
 
+/**
+ * 外壳挂载后的统一启动入口：向 Rust 索取启动计划并执行
+ *
+ * - ChatGPT（macOS）：Rust 已在系统浏览器打开，这里展示提示卡片
+ * - 其他模型：跳转到计划中的 URL
+ */
 async function launchModel() {
   const plan = await invoke<ModelLaunchPlan>('get_model_launch_plan')
   if (plan.openInSystemBrowser) {

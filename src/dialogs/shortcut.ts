@@ -1,10 +1,26 @@
+/**
+ * 快捷键设置弹窗入口。
+ *
+ * 读写走 Rust 命令：`get_shortcut_dialog_data` / `save_shortcut` /
+ * `remove_shortcut_history` / `close_shortcut_window`。
+ * 打开期间 Rust 侧会注销全局快捷键，窗口销毁时自动恢复。
+ */
 import './dialog.css'
 import './shortcut.css'
 import { invoke } from '@tauri-apps/api/core'
 import { mountHistoryList, readText, requireElement } from './common'
 
+/** 无修饰键按下时的按键名，视为尚未构成快捷键 */
 const MODIFIER_KEYS = new Set(['CONTROL', 'META', 'ALT', 'SHIFT'])
 
+/**
+ * 把快捷键的内部写法转换成展示文案
+ *
+ * 例：`CommandOrControl+G` → `Cmd/Ctrl + G`、`Alt+Space` → `Option/Alt + Space`
+ *
+ * @param value - 内部写法的快捷键字符串
+ * @returns 面向展示的文案
+ */
 function formatShortcut(value: string): string {
   return value
     .replaceAll('CommandOrControl', 'Cmd/Ctrl')
@@ -12,6 +28,15 @@ function formatShortcut(value: string): string {
     .replaceAll('+', ' + ')
 }
 
+/**
+ * 把键盘事件归一化为快捷键的内部写法
+ *
+ * Ctrl 与 Meta 合并为 `CommandOrControl`（跨平台语义一致）；
+ * 仅按修饰键、或未按任何修饰键时返回 null，表示不构成有效快捷键。
+ *
+ * @param event - 键盘事件
+ * @returns 形如 `CommandOrControl+Shift+K` 的字符串；无效组合返回 null
+ */
 function normalizeKey(event: KeyboardEvent): string | null {
   const modifiers: string[] = []
   if (event.ctrlKey || event.metaKey) {
@@ -33,6 +58,12 @@ function normalizeKey(event: KeyboardEvent): string | null {
   return `${modifiers.join('+')}+${finalKey}`
 }
 
+/**
+ * 弹窗初始化：回填本地化文案与当前快捷键、渲染历史列表，
+ * 并绑定录入（keydown）、保存/取消/恢复默认事件
+ *
+ * @throws invoke 不可用或调用失败时 reject，由底部的统一 catch 弹窗提示
+ */
 async function init(): Promise<void> {
   const display = requireElement('shortcut-display')
   const hintEl = requireElement('hint-text')
@@ -57,6 +88,9 @@ async function init(): Promise<void> {
   const defaultShortcut = state.defaultShortcut || 'CommandOrControl+G'
   let history = Array.isArray(state.history) ? [...state.history] : []
 
+  /**
+   * 刷新展示区：普通态展示当前快捷键，录入态高亮边框
+   */
   const updateDisplay = (value: string, recording = false) => {
     display.classList.toggle('recording', recording)
     display.classList.toggle('has-value', Boolean(value))

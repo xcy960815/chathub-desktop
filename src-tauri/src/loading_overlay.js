@@ -1,3 +1,12 @@
+/**
+ * 模型加载过渡层：切换模型时先展示全屏加载动效，再跳转目标地址，
+ * 避免页面切换出现白屏闪烁。
+ *
+ * 由 src-tauri/src/models.rs 的 switch_model() 通过 include_str! 注入当前页面，
+ * 不参与 Vite 构建，须保持纯 JS。注入前 Rust 侧会替换以下占位符：
+ * - `__TARGET_URL__`：跳转目标地址
+ * - `__LOADING_TEXT__`：本地化的加载文案（跟随托盘语言设置）
+ */
 ;(function () {
   const overlayId = 'chathub-loading-overlay'
   if (document.getElementById(overlayId)) return
@@ -79,12 +88,12 @@
     `
   document.documentElement.appendChild(overlay)
 
-  // Redirect to the target model URL after a short delay
+  // 短暂展示动效后跳转目标地址（给遮罩渲染留出时间，避免闪烁）
   setTimeout(function () {
     window.location.href = '__TARGET_URL__'
   }, 800)
 
-  // Auto-remove after long timeout (failsafe)
+  // 兜底：10 秒后无论跳转是否成功都淡出并移除遮罩
   setTimeout(() => {
     if (document.getElementById(overlayId)) {
       overlay.style.opacity = '0'
