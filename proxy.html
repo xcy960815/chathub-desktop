@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>代理设置</title>
+  </head>
+  <body>
+    <div class="container">
+      <div id="hint-text" class="hint"></div>
+
+      <div class="input-wrap">
+        <input id="proxy-input" type="text" placeholder="" spellcheck="false" autocomplete="off" />
+      </div>
+
+      <div class="history-block">
+        <div id="history-label" class="history-title">最近使用</div>
+        <div id="history-list" class="history-list"></div>
+      </div>
+
+      <div class="buttons">
+        <button id="clear-btn" class="btn-clear">清空</button>
+        <button id="cancel-btn" class="btn-cancel">取消</button>
+        <button id="save-btn" class="btn-save">保存</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/dialogs/proxy.ts"></script>
+  </body>
+</html>

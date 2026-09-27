@@ -5,7 +5,7 @@ import vue from '@vitejs/plugin-vue'
 const host = process.env.TAURI_DEV_HOST
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [vue()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -28,5 +28,15 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ['**/src-tauri/**']
     }
+  },
+  build: {
+    rollupOptions: {
+      // 主窗口与两个设置弹窗（Rust 侧通过 WebviewUrl::App("proxy.html") 等打开）
+      input: {
+        main: 'index.html',
+        proxy: 'proxy.html',
+        shortcut: 'shortcut.html'
+      }
+    }
   }
-}))
+})

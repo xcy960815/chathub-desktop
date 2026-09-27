@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>快捷键设置</title>
+  </head>
+  <body>
+    <div class="container">
+      <div id="hint-text" class="hint">按下按键组合以设置快捷键</div>
+      <div id="shortcut-display" class="shortcut-display">请录入...</div>
+
+      <div class="history-block">
+        <div id="history-label" class="history-title">最近使用</div>
+        <div id="history-list" class="history-list"></div>
+      </div>
+
+      <div class="buttons">
+        <button id="reset-btn" class="btn-reset">恢复默认</button>
+        <button id="cancel-btn" class="btn-cancel">取消</button>
+        <button id="save-btn" class="btn-save">保存</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/dialogs/shortcut.ts"></script>
+  </body>
+</html>

@@ -81,12 +81,14 @@ struct GitHubRelease {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProxyDialogData {
     current: String,
     history: Vec<String>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ShortcutDialogData {
     current: String,
     history: Vec<String>,

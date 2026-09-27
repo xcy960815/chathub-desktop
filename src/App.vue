@@ -14,9 +14,10 @@
       <div class="dot dot-2"></div>
       <div class="dot dot-3"></div>
     </div>
-    <p class="loading-text">{{ loadingText }}</p>
+    <div class="loading-text">{{ loadingText }}</div>
   </div>
 </template>
+
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
@@ -67,6 +68,7 @@ onBeforeUnmount(() => {
   for (const cleanup of cleanupFns) {
     void Promise.resolve(cleanup())
   }
+  cleanupFns.length = 0
 })
 
 onMounted(async () => {
@@ -75,17 +77,6 @@ onMounted(async () => {
     redirectTo(DEFAULT_MODEL_URL)
     return
   }
-
-  cleanupFns.push(
-    await listen('switch-model', (event: Event<string>) => {
-      isLoading.value = true
-      loadingText.value = '模型加载中...'
-      externalNotice.value = null
-      setTimeout(() => {
-        redirectTo(event.payload as string)
-      }, 300)
-    })
-  )
 
   cleanupFns.push(
     await listen('login_success', (event: Event<Record<string, unknown>>) => {
@@ -109,37 +100,7 @@ onMounted(async () => {
 })
 </script>
 
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html,
-body {
-  height: 100%;
-  width: 100%;
-}
-
-:root {
-  font-family: 'PingFang SC', 'Microsoft YaHei', Inter, Avenir, Helvetica, Arial, sans-serif;
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-  height: 100vh;
-  width: 100vw;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-}
-
+<style scoped>
 .loading-container,
 .external-container {
   display: flex;
@@ -161,13 +122,6 @@ body {
   text-align: center;
 }
 
-@media (prefers-color-scheme: dark) {
-  .external-card {
-    background: rgba(31, 31, 31, 0.96);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-}
-
 .external-title {
   font-size: 1.25rem;
   margin-bottom: 12px;
@@ -177,12 +131,6 @@ body {
   line-height: 1.6;
   color: #4b5563;
   margin-bottom: 20px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .external-text {
-    color: #d1d5db;
-  }
 }
 
 .external-button {
@@ -195,11 +143,8 @@ body {
   cursor: pointer;
 }
 
-@media (prefers-color-scheme: dark) {
-  .external-button {
-    background: #f3f4f6;
-    color: #111827;
-  }
+.loading-container {
+  gap: 2rem;
 }
 
 .dots {
@@ -207,10 +152,6 @@ body {
   align-items: flex-end;
   gap: 8px;
   height: 30px;
-}
-
-.loading-container {
-  gap: 2rem;
 }
 
 .dot {
@@ -239,16 +180,6 @@ body {
   animation-delay: 0.4s;
 }
 
-@keyframes bounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-20px);
-  }
-}
-
 .loading-text {
   font-size: 1rem;
   font-weight: 500;
@@ -256,8 +187,32 @@ body {
 }
 
 @media (prefers-color-scheme: dark) {
+  .external-card {
+    background: rgba(31, 31, 31, 0.96);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .external-text {
+    color: #d1d5db;
+  }
+
+  .external-button {
+    background: #f3f4f6;
+    color: #111827;
+  }
+
   .loading-text {
     color: #d1d5db;
+  }
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
   }
 }
 </style>

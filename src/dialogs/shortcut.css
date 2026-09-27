@@ -1,0 +1,32 @@
+.shortcut-display {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.shortcut-display.recording {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  color: var(--accent);
+}
+
+.shortcut-display.has-value {
+  color: var(--text);
+}
+
+.btn-reset {
+  margin-right: auto;
+  background: var(--panel);
+  color: var(--muted);
+}
