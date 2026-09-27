@@ -274,14 +274,13 @@ fn is_transient_provider_url(host: &str, path: &str) -> bool {
         return true;
     }
 
-    if host == "chatgpt.com"
+    if (host == "chatgpt.com"
         || host.ends_with(".chatgpt.com")
         || host == "openai.com"
-        || host.ends_with(".openai.com")
+        || host.ends_with(".openai.com"))
+        && path.starts_with("/auth")
     {
-        if path.starts_with("/auth") {
-            return true;
-        }
+        return true;
     }
 
     false
@@ -331,28 +330,29 @@ fn dedupe_history(values: Vec<String>) -> Vec<String> {
 }
 
 fn legacy_settings_path() -> Option<PathBuf> {
+    // 每个平台只有一个 cfg 块参与编译，作为函数返回值
     #[cfg(target_os = "macos")]
     {
         let home = env::var_os("HOME")?;
-        return Some(
+        Some(
             PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
                 .join("chathub-desktop")
                 .join("config")
                 .join("settings.json"),
-        );
+        )
     }
 
     #[cfg(target_os = "windows")]
     {
         let app_data = env::var_os("APPDATA")?;
-        return Some(
+        Some(
             PathBuf::from(app_data)
                 .join("chathub-desktop")
                 .join("config")
                 .join("settings.json"),
-        );
+        )
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -456,7 +456,16 @@ fn apply_legacy_settings(settings: &mut AppSettings, legacy: LegacyAppSettings) 
 }
 
 pub fn load_app_settings(app: &AppHandle) -> AppSettings {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
+    // store 打开失败时退回默认配置，避免托盘/窗口初始化直接崩溃
+    let Ok(store) = app.store(SETTINGS_FILENAME) else {
+        log::error!("打开设置存储失败，使用默认/旧版配置");
+        let mut settings = AppSettings::default();
+        if let Some(legacy_settings) = load_legacy_app_settings() {
+            apply_legacy_settings(&mut settings, legacy_settings);
+        }
+        settings.sanitize();
+        return settings;
+    };
 
     if let Some(value) = store.get(APP_SETTINGS_KEY) {
         if let Ok(mut settings) = serde_json::from_value::<AppSettings>(value) {
@@ -509,7 +518,10 @@ pub fn load_app_settings(app: &AppHandle) -> AppSettings {
 }
 
 pub fn save_app_settings(app: &AppHandle, settings: &AppSettings) {
-    let store = app.store(SETTINGS_FILENAME).unwrap();
+    let Ok(store) = app.store(SETTINGS_FILENAME) else {
+        log::error!("打开设置存储失败，本次修改不会持久化");
+        return;
+    };
     let value = serde_json::to_value(settings).unwrap_or_default();
     store.set(APP_SETTINGS_KEY, value);
     let _ = store.save();
@@ -582,8 +594,10 @@ mod tests {
 
     #[test]
     fn sanitize_repairs_invalid_urls() {
-        let mut settings = AppSettings::default();
-        settings.model = "CHATGPT_URL".to_string();
+        let mut settings = AppSettings {
+            model: "CHATGPT_URL".to_string(),
+            ..Default::default()
+        };
         settings.urls.chatgpt = "  http://localhost:1420/  ".to_string();
         settings.urls.deepseek = "   ".to_string();
 
@@ -595,8 +609,10 @@ mod tests {
 
     #[test]
     fn current_url_falls_back_when_transient_provider_url_was_persisted() {
-        let mut settings = AppSettings::default();
-        settings.model = GEMINI_MODEL_ID.to_string();
+        let mut settings = AppSettings {
+            model: GEMINI_MODEL_ID.to_string(),
+            ..Default::default()
+        };
         settings.urls.gemini = "https://gemini.google.com/_/bscframe".to_string();
 
         assert_eq!(settings.current_url(), GEMINI_URL);

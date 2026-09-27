@@ -1,7 +1,7 @@
 <template>
   <div v-if="externalNotice" class="external-container">
     <div class="external-card">
-      <h1 class="external-title">ChatGPT 已在系统浏览器中打开</h1>
+      <h1 class="external-title">{{ externalTitle }}</h1>
       <p class="external-text">{{ externalNotice }}</p>
       <button class="external-button" type="button" @click="reopenInBrowser">
         再次在浏览器中打开
@@ -26,11 +26,13 @@ import { listen, type Event } from '@tauri-apps/api/event'
 interface ModelLaunchPlan {
   url: string
   openInSystemBrowser: boolean
+  title?: string | null
   notice?: string | null
 }
 
 const isLoading = ref(true)
 const loadingText = ref('模型加载中...')
+const externalTitle = ref('已在系统浏览器中打开')
 const externalNotice = ref<string | null>(null)
 const externalUrl = ref('')
 const DEFAULT_MODEL_URL = 'https://chatgpt.com'
@@ -41,6 +43,7 @@ function redirectTo(url: string) {
 }
 
 function showExternalNotice(plan: ModelLaunchPlan) {
+  externalTitle.value = plan.title || '已在系统浏览器中打开'
   externalNotice.value = plan.notice || '已在系统浏览器中打开。'
   externalUrl.value = plan.url
   isLoading.value = false

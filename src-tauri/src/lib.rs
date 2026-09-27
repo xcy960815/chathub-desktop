@@ -53,7 +53,7 @@ fn show_js_alert(app: &AppHandle, message: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let payload = serde_json::to_string(message)
             .unwrap_or_else(|_| "\"操作失败，请稍后重试\"".to_string());
-        let _ = window.eval(&format!("window.alert({payload});"));
+        let _ = window.eval(format!("window.alert({payload});").as_str());
     }
 }
 
@@ -128,6 +128,21 @@ pub fn run() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .build(),
+        )
+        .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     use tauri_plugin_global_shortcut::ShortcutState;
@@ -150,6 +165,9 @@ pub fn run() {
             commands::remove_shortcut_history
         ])
         .setup(|app| {
+            // 旧版本明文存放的 OAuth Token 迁移到系统钥匙串
+            oauth::migrate_plaintext_tokens(app.handle());
+
             // 创建主窗口
             let navigation_app = app.handle().clone();
             let initialization_script = build_initialization_script();
@@ -183,7 +201,7 @@ pub fn run() {
                     return true;
                 }
 
-                save_current_model_url(&navigation_app, &url.to_string());
+                save_current_model_url(&navigation_app, url.as_str());
                 true
             })
             .build()?;
@@ -201,19 +219,15 @@ pub fn run() {
             let settings = load_app_settings(app.handle());
             let _ = main_window.set_always_on_top(settings.always_on_top);
 
-            println!("[调试] 开始创建托盘菜单...");
+            log::info!("创建托盘菜单");
             let menu = match tray::create_tray_menu(app.handle()) {
-                Ok(m) => {
-                    println!("[调试] 托盘菜单创建成功");
-                    m
-                }
+                Ok(m) => m,
                 Err(e) => {
-                    println!("[错误] 托盘菜单创建失败: {}", e);
+                    log::error!("托盘菜单创建失败: {e}");
                     return Err(e.into());
                 }
             };
 
-            println!("[调试] 开始构建托盘图标...");
             let _tray = TrayIconBuilder::with_id("tray")
                 .menu(&menu)
                 .icon(app.default_window_icon().unwrap().clone())
@@ -305,7 +319,7 @@ pub fn run() {
             if !shortcut_str.is_empty() {
                 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
                 if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
-                    println!("注册初始快捷键: {}", shortcut_str);
+                    log::info!("注册初始快捷键: {shortcut_str}");
                     let _ = app.global_shortcut().register(shortcut);
                 }
             }

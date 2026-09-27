@@ -2,12 +2,12 @@ use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, Submenu},
     AppHandle,
 };
-
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_store::StoreExt;
 
 use crate::settings::{
     load_app_settings, normalize_model_id, CHATGPT_MODEL_ID, DEEPSEEK_MODEL_ID, DOUBAO_MODEL_ID,
-    GEMINI_MODEL_ID, GROK_MODEL_ID, QWEN_MODEL_ID,
+    GEMINI_MODEL_ID, GROK_MODEL_ID, QWEN_MODEL_ID, SETTINGS_FILENAME,
 };
 
 /**
@@ -85,6 +85,22 @@ pub fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let proxy_item = MenuItem::with_id(app, "proxy", proxy_text, true, None::<&str>)?;
     let shortcut_item = MenuItem::with_id(app, "shortcut", shortcut_text, true, None::<&str>)?;
+
+    // 按登录状态展示"登录 Google"或"退出登录"
+    let is_logged_in = app
+        .store(SETTINGS_FILENAME)
+        .map(|store| store.get("oauth_user_info").is_some())
+        .unwrap_or(false);
+    let (login_text, logout_text) = if is_english {
+        ("Sign in with Google", "Sign Out")
+    } else {
+        ("登录 Google", "退出登录")
+    };
+    let account_item = if is_logged_in {
+        MenuItem::with_id(app, "logout", logout_text, true, None::<&str>)?
+    } else {
+        MenuItem::with_id(app, "google_login", login_text, true, None::<&str>)?
+    };
 
     let current_model = normalize_model_id(&settings.model);
     let chatgpt_item = CheckMenuItem::with_id(
@@ -168,6 +184,7 @@ pub fn create_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &language_submenu,
             &reload_item,
             &open_browser_item,
+            &account_item,
             &check_updates_item,
             &quit_item,
         ],

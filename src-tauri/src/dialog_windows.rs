@@ -50,15 +50,15 @@ pub fn open_proxy_dialog(app: &AppHandle) {
 
     let query_params = format!(
         "?hint={hint_text}&current={current_proxy}&placeholder={placeholder_text}&cancelText={cancel_text}&okText={ok_text}&historyLabel={historyLabel}&emptyHistory={emptyHistory}&deleteText={deleteText}&clearText={clearText}",
-        hint_text = urlencoding::encode(&hint_text),
+        hint_text = urlencoding::encode(hint_text),
         current_proxy = urlencoding::encode(&current_proxy),
-        placeholder_text = urlencoding::encode(&placeholder_text),
-        cancel_text = urlencoding::encode(&cancel_text),
-        ok_text = urlencoding::encode(&ok_text),
-        historyLabel = urlencoding::encode(&history_text),
-        emptyHistory = urlencoding::encode(&empty_history_text),
-        deleteText = urlencoding::encode(&delete_text),
-        clearText = urlencoding::encode(&clear_text)
+        placeholder_text = urlencoding::encode(placeholder_text),
+        cancel_text = urlencoding::encode(cancel_text),
+        ok_text = urlencoding::encode(ok_text),
+        historyLabel = urlencoding::encode(history_text),
+        emptyHistory = urlencoding::encode(empty_history_text),
+        deleteText = urlencoding::encode(delete_text),
+        clearText = urlencoding::encode(clear_text)
     );
 
     let _ = tauri::webview::WebviewWindowBuilder::new(
@@ -121,15 +121,15 @@ pub fn open_shortcut_dialog(app: &AppHandle) {
 
     let query_params = format!(
         "?title={title}&hint={hint}&current={current}&cancelText={cancelText}&okText={okText}&historyLabel={historyLabel}&emptyHistory={emptyHistory}&resetText={resetText}&deleteText={deleteText}",
-        title = urlencoding::encode(&title),
-        hint = urlencoding::encode(&hint_text),
+        title = urlencoding::encode(title),
+        hint = urlencoding::encode(hint_text),
         current = urlencoding::encode(&current_shortcut),
-        cancelText = urlencoding::encode(&cancel_text),
-        okText = urlencoding::encode(&ok_text),
-        historyLabel = urlencoding::encode(&history_text),
-        emptyHistory = urlencoding::encode(&empty_history_text),
-        resetText = urlencoding::encode(&reset_text),
-        deleteText = urlencoding::encode(&delete_text)
+        cancelText = urlencoding::encode(cancel_text),
+        okText = urlencoding::encode(ok_text),
+        historyLabel = urlencoding::encode(history_text),
+        emptyHistory = urlencoding::encode(empty_history_text),
+        resetText = urlencoding::encode(reset_text),
+        deleteText = urlencoding::encode(delete_text)
     );
 
     // 在打开设置前取消注册当前快捷键

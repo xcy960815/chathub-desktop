@@ -75,7 +75,7 @@
             <div class="dot dot-2"></div>
             <div class="dot dot-3"></div>
         </div>
-        <div class="loading-text">模型加载中...</div>
+        <div class="loading-text">__LOADING_TEXT__</div>
     `
   document.documentElement.appendChild(overlay)
 
