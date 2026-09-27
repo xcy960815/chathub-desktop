@@ -284,21 +284,6 @@
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL
         const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData
 
-        HTMLCanvasElement.prototype.toDataURL = markNative(function (...args) {
-          try {
-            const context = this.getContext('2d')
-            if (context) {
-              const { width, height } = this
-              if (width && height) {
-                const imageData = context.getImageData(0, 0, width, height)
-                imageData.data[0] = imageData.data[0] ^ 1
-                context.putImageData(imageData, 0, 0)
-              }
-            }
-          } catch (_) {}
-          return originalToDataURL.apply(this, args)
-        }, 'toDataURL')
-
         CanvasRenderingContext2D.prototype.getImageData = markNative(function (...args) {
           const imageData = originalGetImageData.apply(this, args)
           try {
@@ -308,6 +293,23 @@
           } catch (_) {}
           return imageData
         }, 'getImageData')
+
+        HTMLCanvasElement.prototype.toDataURL = markNative(function (...args) {
+          try {
+            const context = this.getContext('2d')
+            if (context) {
+              const { width, height } = this
+              if (width && height) {
+                // 翻转首像素最低有效位改变指纹，视觉上不可察觉；
+                // 使用未包装的 getImageData 避免噪声被二次翻转抵消
+                const imageData = originalGetImageData.call(context, 0, 0, width, height)
+                imageData.data[0] = imageData.data[0] ^ 1
+                context.putImageData(imageData, 0, 0)
+              }
+            }
+          } catch (_) {}
+          return originalToDataURL.apply(this, args)
+        }, 'toDataURL')
       } catch (_) {}
     }
 
@@ -528,8 +530,10 @@
       patchTarget('connection', () => connection)
     } catch (_) {}
 
+    // 固定同一实例：window.chrome 每次访问返回新对象会暴露 chrome === chrome 为 false
+    const chromeObject = buildChromeObject()
     try {
-      defineGetter(window, 'chrome', () => buildChromeObject())
+      defineGetter(window, 'chrome', () => chromeObject)
     } catch (_) {}
 
     patchPermissions()
